@@ -33,6 +33,7 @@ import java.io.IOException;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 
 import javax.servlet.ServletException;
@@ -41,6 +42,8 @@ import javax.servlet.http.HttpServletResponse;
 
 import static org.junit.Assert.*;
 
+import jenkins.security.UpdateSiteWarningsConfiguration;
+import jenkins.security.UpdateSiteWarningsMonitor;
 import org.apache.commons.io.FileUtils;
 import org.eclipse.jetty.server.HttpConnection;
 import org.eclipse.jetty.server.Request;
@@ -51,7 +54,9 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import org.jvnet.hudson.test.Issue;
 import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.recipes.LocalData;
 
 public class UpdateSiteTest {
 
@@ -127,5 +132,59 @@ public class UpdateSiteTest {
         assertEquals(FormValidation.ok(), us.updateDirectly(/* TODO the certificate is now expired, and downloading a fresh copy did not seem to help */false).get());
         assertNotNull(us.getPlugin("AdaptivePlugin"));
     }
-    
+
+    @Test public void lackOfDataDoesNotFailWarningsCode() throws Exception {
+        assertNull("plugin data is not present", j.jenkins.getUpdateCenter().getSite("default").getData());
+
+        // nothing breaking?
+        j.jenkins.getExtensionList(UpdateSiteWarningsMonitor.class).get(0).getActivePluginWarningsByPlugin();
+        j.jenkins.getExtensionList(UpdateSiteWarningsMonitor.class).get(0).getActiveCoreWarnings();
+        j.jenkins.getExtensionList(UpdateSiteWarningsConfiguration.class).get(0).getAllWarnings();
+    }
+
+    @Test public void incompleteWarningsJson() throws Exception {
+        PersistedList<UpdateSite> sites = j.jenkins.getUpdateCenter().getSites();
+        sites.clear();
+        URL url = new URL(baseUrl, "/plugins/warnings-update-center-malformed.json");
+        UpdateSite site = new UpdateSite(UpdateCenter.ID_DEFAULT, url.toString());
+        sites.add(site);
+        assertEquals(FormValidation.ok(), site.updateDirectly(false).get());
+        assertEquals("number of warnings", 7, site.getData().getWarnings().size());
+        assertNotEquals("plugin data is present", Collections.emptyMap(), site.getData().plugins);
+    }
+
+    @Issue("JENKINS-55048")
+    @Test public void minimumJavaVersion() throws Exception {
+        // TODO: factor out the sites init
+        PersistedList<UpdateSite> sites = j.jenkins.getUpdateCenter().getSites();
+        sites.clear();
+        URL url = new URL(baseUrl, "/plugins/minJavaVersion-update-center.json");
+        UpdateSite site = new UpdateSite(UpdateCenter.ID_DEFAULT, url.toString());
+        sites.add(site);
+        assertEquals(FormValidation.ok(), site.updateDirectly(false).get());
+        // END TODO
+
+        final UpdateSite.Plugin tasksPlugin = site.getPlugin("tasks");
+        assertNotNull(tasksPlugin);
+        assertFalse(tasksPlugin.isNeededDependenciesForNewerJava());
+        assertFalse(tasksPlugin.isForNewerJava());
+
+        final UpdateSite.Plugin pluginCompiledForTooRecentJava = site.getPlugin("java-too-recent");
+        assertFalse(pluginCompiledForTooRecentJava.isNeededDependenciesForNewerJava());
+        assertTrue(pluginCompiledForTooRecentJava.isForNewerJava());
+
+        final UpdateSite.Plugin pluginDependingOnPluginCompiledForTooRecentJava = site.getPlugin("depending-on-too-recent-java");
+        assertTrue(pluginDependingOnPluginCompiledForTooRecentJava.isNeededDependenciesForNewerJava());
+        assertFalse(pluginDependingOnPluginCompiledForTooRecentJava.isForNewerJava());
+
+    }
+
+    @Issue("JENKINS-31448")
+    @Test public void isLegacyDefault() throws Exception {
+        assertFalse("isLegacyDefault should be false with null id",new UpdateSite(null,"url").isLegacyDefault());
+        assertFalse("isLegacyDefault should be false when id is not default and url is http://hudson-ci.org/",new UpdateSite("dummy","http://hudson-ci.org/").isLegacyDefault());
+        assertTrue("isLegacyDefault should be true when id is default and url is http://hudson-ci.org/",new UpdateSite(UpdateCenter.PREDEFINED_UPDATE_SITE_ID,"http://hudson-ci.org/").isLegacyDefault());
+        assertTrue("isLegacyDefault should be true when url is http://updates.hudson-labs.org/",new UpdateSite("dummy","http://updates.hudson-labs.org/").isLegacyDefault());
+        assertFalse("isLegacyDefault should be false with null url",new UpdateSite(null,null).isLegacyDefault());
+    }
 }

@@ -17,6 +17,7 @@
  */
 package jenkins.util;
 
+import java.nio.file.Files;
 import org.apache.tools.ant.BuildEvent;
 import org.apache.tools.ant.BuildException;
 import org.apache.tools.ant.Project;
@@ -34,7 +35,6 @@ import org.kohsuke.accmod.restrictions.NoExternalUse;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Constructor;
@@ -545,7 +545,7 @@ public class AntClassLoader extends ClassLoader implements SubBuildListener {
      *         separated by the path separator for the system.
      */
     public String getClasspath() {
-        StringBuffer sb = new StringBuffer();
+        StringBuilder sb = new StringBuilder();
         boolean firstPass = true;
         Enumeration componentEnum = pathComponents.elements();
         while (componentEnum.hasMoreElements()) {
@@ -790,7 +790,7 @@ public class AntClassLoader extends ClassLoader implements SubBuildListener {
             if (jarFile == null && file.isDirectory()) {
                 File resource = new File(file, resourceName);
                 if (resource.exists()) {
-                    return new FileInputStream(resource);
+                    return Files.newInputStream(resource.toPath());
                 }
             } else {
                 if (jarFile == null) {
@@ -1352,31 +1352,25 @@ public class AntClassLoader extends ClassLoader implements SubBuildListener {
         throws ClassNotFoundException {
         // we need to search the components of the path to see if
         // we can find the class we want.
-        InputStream stream = null;
         String classFilename = getClassFilename(name);
-        try {
-            Enumeration e = pathComponents.elements();
-            while (e.hasMoreElements()) {
-                File pathComponent = (File) e.nextElement();
-                try {
-                    stream = getResourceStream(pathComponent, classFilename);
-                    if (stream != null) {
-                        log("Loaded from " + pathComponent + " "
-                            + classFilename, Project.MSG_DEBUG);
-                        return getClassFromStream(stream, name, pathComponent);
-                    }
-                } catch (SecurityException se) {
-                    throw se;
-                } catch (IOException ioe) {
-                    // ioe.printStackTrace();
-                    log("Exception reading component " + pathComponent + " (reason: "
-                            + ioe.getMessage() + ")", Project.MSG_VERBOSE);
+        Enumeration e = pathComponents.elements();
+        while (e.hasMoreElements()) {
+            File pathComponent = (File) e.nextElement();
+            try (final InputStream stream = getResourceStream(pathComponent, classFilename)) {
+                if (stream != null) {
+                    log("Loaded from " + pathComponent + " "
+                        + classFilename, Project.MSG_DEBUG);
+                    return getClassFromStream(stream, name, pathComponent);
                 }
+            } catch (SecurityException se) {
+                throw se;
+            } catch (IOException ioe) {
+                // ioe.printStackTrace();
+                log("Exception reading component " + pathComponent + " (reason: "
+                        + ioe.getMessage() + ")", Project.MSG_VERBOSE);
             }
-            throw new ClassNotFoundException(name);
-        } finally {
-            FileUtils.close(stream);
         }
+        throw new ClassNotFoundException(name);
     }
 
     /**
@@ -1567,8 +1561,7 @@ public class AntClassLoader extends ClassLoader implements SubBuildListener {
                 ReflectUtil.newInstance(subClassToLoad,
                                         CONSTRUCTOR_ARGS,
                                         new Object[] {
-                                            parent, project, path,
-                                            Boolean.valueOf(parentFirst)
+                                            parent, project, path, parentFirst
                                         });
         }
         return new AntClassLoader(parent, project, path, parentFirst);

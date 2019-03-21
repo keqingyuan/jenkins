@@ -37,8 +37,9 @@ import java.util.HashSet;
 import java.util.List;
 
 /**
+ * CLI Command, which moves the node to the online state.
  * @author pjanouse
- * @since TODO
+ * @since 1.642
  */
 @Extension
 public class OnlineNodeCommand extends CLICommand {
@@ -55,7 +56,7 @@ public class OnlineNodeCommand extends CLICommand {
     protected int run() throws Exception {
         boolean errorOccurred = false;
         final Jenkins jenkins = Jenkins.getActiveInstance();
-        final HashSet<String> hs = new HashSet<String>(nodes);
+        final HashSet<String> hs = new HashSet<>(nodes);
         List<String> names = null;
 
         for (String node_s : hs) {
@@ -86,7 +87,7 @@ public class OnlineNodeCommand extends CLICommand {
         }
 
         if (errorOccurred){
-            throw new AbortException("Error occured while performing this command, see previous stderr output.");
+            throw new AbortException(CLI_LISTPARAM_SUMMARY_ERROR_TEXT);
         }
         return 0;
     }

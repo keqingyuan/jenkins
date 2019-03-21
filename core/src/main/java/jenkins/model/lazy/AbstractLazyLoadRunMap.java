@@ -29,10 +29,9 @@ import hudson.model.RunMap;
 import java.io.File;
 import java.io.IOException;
 import java.util.AbstractMap;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.List;
+import java.util.ListIterator;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
@@ -41,6 +40,8 @@ import java.util.TreeMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.annotation.CheckForNull;
+
+import jenkins.util.MemoryReductionUtil;
 import org.kohsuke.accmod.Restricted;
 import org.kohsuke.accmod.restrictions.NoExternalUse;
 
@@ -189,7 +190,7 @@ public abstract class AbstractLazyLoadRunMap<R> extends AbstractMap<Integer,R> i
         String[] kids = dir.list();
         if (kids == null) {
             // the job may have just been created
-            kids = EMPTY_STRING_ARRAY;
+            kids = MemoryReductionUtil.EMPTY_STRING_ARRAY;
         }
         SortedIntList list = new SortedIntList(kids.length / 2);
         for (String s : kids) {
@@ -293,7 +294,7 @@ public abstract class AbstractLazyLoadRunMap<R> extends AbstractMap<Integer,R> i
     }
 
     /**
-     * Checks if the the specified build exists.
+     * Checks if the specified build exists.
      *
      * @param number the build number to probe.
      * @return {@code true} if there is an run for the corresponding number, note that this does not mean that
@@ -315,8 +316,8 @@ public abstract class AbstractLazyLoadRunMap<R> extends AbstractMap<Integer,R> i
      * @param d
      *      defines what we mean by "nearby" above.
      *      If EXACT, find #N or return null.
-     *      If ASC, finds the closest #M that satisfies M>=N.
-     *      If DESC, finds the closest #M that satisfies M&lt;=N.
+     *      If ASC, finds the closest #M that satisfies M ≥ N.
+     *      If DESC, finds the closest #M that satisfies M ≤ N.
      */
     public @CheckForNull R search(final int n, final Direction d) {
         switch (d) {
@@ -336,9 +337,9 @@ public abstract class AbstractLazyLoadRunMap<R> extends AbstractMap<Integer,R> i
             return null;
         case DESC:
             // TODO again could be made more efficient
-            List<Integer> reversed = new ArrayList<Integer>(numberOnDisk);
-            Collections.reverse(reversed);
-            for (int m : reversed) {
+            ListIterator<Integer> iterator = numberOnDisk.listIterator(numberOnDisk.size());
+            while(iterator.hasPrevious()) {
+                int m = iterator.previous();
                 if (m > n) {
                     continue;
                 }
@@ -586,8 +587,6 @@ public abstract class AbstractLazyLoadRunMap<R> extends AbstractMap<Integer,R> i
     public enum Direction {
         ASC, DESC, EXACT
     }
-
-    private static final String[] EMPTY_STRING_ARRAY = new String[0];
 
     private static final SortedMap EMPTY_SORTED_MAP = Collections.unmodifiableSortedMap(new TreeMap());
 

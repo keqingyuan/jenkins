@@ -34,19 +34,21 @@ import static org.junit.Assert.assertTrue;
 
 import com.gargoylesoftware.htmlunit.html.HtmlForm;
 import com.gargoylesoftware.htmlunit.html.HtmlPage;
-import edu.umd.cs.findbugs.annotations.SuppressWarnings;
 import hudson.tasks.Builder;
 import hudson.tasks.Shell;
 import java.io.ByteArrayInputStream;
 
 import javax.xml.transform.Source;
 import javax.xml.transform.stream.StreamSource;
+
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.jvnet.hudson.test.FailureBuilder;
 import org.jvnet.hudson.test.Issue;
 import org.jvnet.hudson.test.JenkinsRule;
 import org.jvnet.hudson.test.JenkinsRule.WebClient;
+import org.jvnet.hudson.test.SmokeTest;
 
 import java.util.List;
 import java.io.File;
@@ -54,6 +56,7 @@ import java.io.File;
 /**
  * @author Kohsuke Kawaguchi
  */
+@Category(SmokeTest.class)
 public class FreeStyleProjectTest {
 
     @Rule
@@ -115,7 +118,6 @@ public class FreeStyleProjectTest {
 
     @Test
     @Issue("JENKINS-15817")
-    @SuppressWarnings("DM_DEFAULT_ENCODING")
     public void minimalConfigXml() throws Exception {
         // Make sure it can be created without exceptions:
         FreeStyleProject project = (FreeStyleProject) j.jenkins.createProjectFromXML("stuff", new ByteArrayInputStream("<project/>".getBytes()));

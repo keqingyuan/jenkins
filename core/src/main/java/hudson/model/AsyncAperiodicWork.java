@@ -23,6 +23,7 @@
  */
 package hudson.model;
 
+import hudson.Functions;
 import hudson.security.ACL;
 import hudson.util.StreamTaskListener;
 import java.io.File;
@@ -119,9 +120,9 @@ public abstract class AsyncAperiodicWork extends AperiodicWork {
 
                         execute(l);
                     } catch (IOException e) {
-                        e.printStackTrace(l.fatalError(e.getMessage()));
+                        Functions.printStackTrace(e, l.fatalError(e.getMessage()));
                     } catch (InterruptedException e) {
-                        e.printStackTrace(l.fatalError("aborted"));
+                        Functions.printStackTrace(e, l.fatalError("aborted"));
                     } finally {
                         stopTime = System.currentTimeMillis();
                         try {
@@ -199,7 +200,7 @@ public abstract class AsyncAperiodicWork extends AperiodicWork {
      * Determines the log file that records the result of this task.
      */
     protected File getLogFile() {
-        return new File(Jenkins.getActiveInstance().getRootDir(),"logs/tasks/"+name+".log");
+        return new File(getLogsRoot(), "/tasks/" + name + ".log");
     }
 
     /**

@@ -1,7 +1,9 @@
 package jenkins.util.xml;
 
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import jenkins.util.SystemProperties;
-import org.apache.commons.io.IOUtils;
 import org.kohsuke.accmod.Restricted;
 import org.kohsuke.accmod.restrictions.NoExternalUse;
 import org.w3c.dom.Document;
@@ -11,7 +13,6 @@ import org.xml.sax.XMLReader;
 import org.xml.sax.helpers.XMLReaderFactory;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.Reader;
@@ -137,16 +138,11 @@ public final class XMLUtils {
             throw new IllegalArgumentException(String.format("File %s does not exist or is not a 'normal' file.", file.getAbsolutePath()));
         }
 
-        FileInputStream fileInputStream = new FileInputStream(file);
-        try {
-            InputStreamReader fileReader = new InputStreamReader(fileInputStream, encoding);
-            try {
-                return parse(fileReader);
-            } finally {
-                IOUtils.closeQuietly(fileReader);
-            }
-        } finally {
-            IOUtils.closeQuietly(fileInputStream);
+        try (InputStream fileInputStream = Files.newInputStream(file.toPath());
+            InputStreamReader fileReader = new InputStreamReader(fileInputStream, encoding)) {
+            return parse(fileReader);
+        } catch (InvalidPathException e) {
+            throw new IOException(e);
         }
     }
 
@@ -233,6 +229,8 @@ public final class XMLUtils {
     private static void setDocumentBuilderFactoryFeature(DocumentBuilderFactory documentBuilderFactory, String feature, boolean state) {
         try {
             documentBuilderFactory.setFeature(feature, state);
-        } catch (Exception e) {}
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, String.format("Failed to set the XML Document Builder factory feature %s to %s", feature, state), e);
+        }
     }
 }

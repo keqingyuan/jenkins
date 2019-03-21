@@ -33,6 +33,7 @@ import hudson.util.StreamTaskListener;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 
 import jenkins.MasterToSlaveFileCallable;
@@ -135,7 +136,7 @@ public class WorkspaceCleanupThreadTest {
         FilePath ws = createOldWorkspaceOn(r.jenkins, p);
         createOldWorkspaceOn(r.createOnlineSlave(), p);
 
-        long twoDaysOld = System.currentTimeMillis() - 2 * 24 * 60 * 60 * 1000;
+        long twoDaysOld = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(2);
         ws.act(new Touch(twoDaysOld));
 
         WorkspaceCleanupThread.retainForDays = 3;
@@ -149,9 +150,9 @@ public class WorkspaceCleanupThreadTest {
         assertFalse(ws.exists());
     }
 
-    @Test @WithoutJenkins public void reocurencePeriodIsInhours() {
+    @Test @WithoutJenkins public void recurrencePeriodIsInHours() {
         assertEquals(
-                WorkspaceCleanupThread.recurrencePeriodHours * 60 * 60 * 1000 ,
+                TimeUnit.HOURS.toMillis(WorkspaceCleanupThread.recurrencePeriodHours),
                 new WorkspaceCleanupThread().getRecurrencePeriod()
         );
     }

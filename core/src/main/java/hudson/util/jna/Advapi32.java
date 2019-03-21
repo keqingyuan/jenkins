@@ -22,6 +22,7 @@ import com.sun.jna.Pointer;
 import com.sun.jna.win32.StdCallLibrary;
 import com.sun.jna.ptr.PointerByReference;
 import com.sun.jna.ptr.IntByReference;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.util.Arrays;
 import java.util.List;
 
@@ -29,6 +30,7 @@ import java.util.List;
  *
  * @author TB
  */
+@SuppressWarnings("UnusedReturnValue")
 public interface Advapi32  extends StdCallLibrary {
   Advapi32 INSTANCE = (Advapi32) Native.loadLibrary("Advapi32", Advapi32.class, Options.UNICODE_OPTIONS);
 
@@ -318,6 +320,7 @@ typedef struct _SERVICE_STATUS {
   DWORD dwWaitHint;
 } SERVICE_STATUS,
  *LPSERVICE_STATUS;*/
+  @SuppressFBWarnings(value = "UUF_UNUSED_PUBLIC_OR_PROTECTED_FIELD", justification = "JNA Data Structure")
   class SERVICE_STATUS extends Structure {
     public int dwServiceType;
     public int dwCurrentState;
@@ -342,6 +345,7 @@ typedef struct _SERVICE_TABLE_ENTRY {
   LPSERVICE_MAIN_FUNCTION lpServiceProc;
 } SERVICE_TABLE_ENTRY,
  *LPSERVICE_TABLE_ENTRY;*/
+  @SuppressFBWarnings(value = "UUF_UNUSED_PUBLIC_OR_PROTECTED_FIELD", justification = "JNA Data Structure")
   class SERVICE_TABLE_ENTRY extends Structure {
     public String lpServiceName;
     public SERVICE_MAIN_FUNCTION lpServiceProc;
@@ -365,6 +369,7 @@ typedef struct _SERVICE_TABLE_ENTRY {
   LPTSTR lpDescription;
 } SERVICE_DESCRIPTION,
  *LPSERVICE_DESCRIPTION;*/
+  @SuppressFBWarnings(value = "UUF_UNUSED_PUBLIC_OR_PROTECTED_FIELD", justification = "JNA Data Structure")
   class SERVICE_DESCRIPTION extends ChangeServiceConfig2Info {
     public String lpDescription;
   }

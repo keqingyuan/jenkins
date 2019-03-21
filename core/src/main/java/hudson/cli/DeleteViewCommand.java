@@ -33,7 +33,6 @@ import org.kohsuke.args4j.Argument;
 
 import java.util.HashSet;
 import java.util.List;
-import java.util.logging.Logger;
 
 /**
  * @author ogondza, pjanouse
@@ -57,7 +56,7 @@ public class DeleteViewCommand extends CLICommand {
         boolean errorOccurred = false;
 
         // Remove duplicates
-        final HashSet<String> hs = new HashSet<String>();
+        final HashSet<String> hs = new HashSet<>();
         hs.addAll(views);
 
         ViewOptionHandler voh = new ViewOptionHandler(null, null, null);
@@ -95,7 +94,7 @@ public class DeleteViewCommand extends CLICommand {
         }
 
         if (errorOccurred) {
-            throw new AbortException("Error occured while performing this command, see previous stderr output.");
+            throw new AbortException(CLI_LISTPARAM_SUMMARY_ERROR_TEXT);
         }
         return 0;
     }

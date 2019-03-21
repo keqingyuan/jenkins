@@ -31,11 +31,11 @@ import org.kohsuke.args4j.Argument;
 
 import java.util.List;
 import java.util.HashSet;
-import java.util.logging.Logger;
 
 /**
+ * CLI command, which deletes a job or multiple jobs.
  * @author pjanouse
- * @since TODO
+ * @since 1.618
  */
 @Extension
 public class DeleteJobCommand extends CLICommand {
@@ -55,7 +55,7 @@ public class DeleteJobCommand extends CLICommand {
         boolean errorOccurred = false;
         final Jenkins jenkins = Jenkins.getActiveInstance();
 
-        final HashSet<String> hs = new HashSet<String>();
+        final HashSet<String> hs = new HashSet<>();
         hs.addAll(jobs);
 
         for (String job_s: hs) {
@@ -83,7 +83,7 @@ public class DeleteJobCommand extends CLICommand {
         }
 
         if (errorOccurred) {
-            throw new AbortException("Error occured while performing this command, see previous stderr output.");
+            throw new AbortException(CLI_LISTPARAM_SUMMARY_ERROR_TEXT);
         }
         return 0;
     }

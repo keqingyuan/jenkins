@@ -28,7 +28,6 @@ import hudson.model.Queue.Item;
 import hudson.model.Queue.Task;
 import jenkins.widgets.HistoryPageFilter;
 
-import java.util.Collection;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -77,6 +76,6 @@ public class BuildHistoryWidget<T> extends HistoryWidget<Task,T> {
         historyPageFilter.add(baseList, getQueuedItems());
         historyPageFilter.widget = this;
 
-        return historyPageFilter;
+        return updateFirstTransientBuildKey(historyPageFilter);
     }
 }

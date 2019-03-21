@@ -91,7 +91,7 @@ public class DependencyGraph implements Comparator<AbstractProject> {
         SecurityContext saveCtx = ACL.impersonate(ACL.SYSTEM);
         try {
             this.computationalData = new HashMap<Class<?>, Object>();
-            for( AbstractProject p : getAllProjects() )
+            for( AbstractProject p : Jenkins.getInstance().allItems(AbstractProject.class) )
                 p.buildDependencyGraph(this);
 
             forward = finalize(forward);
@@ -145,10 +145,6 @@ public class DependencyGraph implements Comparator<AbstractProject> {
         };
 
         topologicallySorted = Collections.unmodifiableList(topologicallySorted);
-    }
-
-    Collection<AbstractProject> getAllProjects() {
-        return Jenkins.getInstance().getAllItems(AbstractProject.class);
     }
 
     /**
@@ -343,10 +339,9 @@ public class DependencyGraph implements Comparator<AbstractProject> {
             set = new ArrayList<DependencyGroup>();
             map.put(key,set);
         }
-        for (ListIterator<DependencyGroup> it = set.listIterator(); it.hasNext();) {
-            DependencyGroup d = it.next();
+        for (DependencyGroup d : set) {
             // Check for existing edge that connects the same two projects:
-            if (d.getUpstreamProject()==dep.getUpstreamProject() && d.getDownstreamProject()==dep.getDownstreamProject()) {
+            if (d.getUpstreamProject() == dep.getUpstreamProject() && d.getDownstreamProject() == dep.getDownstreamProject()) {
                 d.add(dep);
                 return;
             }

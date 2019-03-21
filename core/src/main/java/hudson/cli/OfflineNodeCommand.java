@@ -34,13 +34,13 @@ import jenkins.model.Jenkins;
 import org.kohsuke.args4j.Argument;
 import org.kohsuke.args4j.Option;
 
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 
 /**
+ * CLI Command, which puts the Jenkins node offline.
  * @author pjanouse
- * @since TODO
+ * @since 2.15
  */
 @Extension
 public class OfflineNodeCommand extends CLICommand {
@@ -59,8 +59,8 @@ public class OfflineNodeCommand extends CLICommand {
     @Override
     protected int run() throws Exception {
         boolean errorOccurred = false;
-        final Jenkins jenkins = Jenkins.getInstance();
-        final HashSet<String> hs = new HashSet<String>(nodes);
+        final Jenkins jenkins = Jenkins.get();
+        final HashSet<String> hs = new HashSet<>(nodes);
         List<String> names = null;
 
         for (String node_s : hs) {
@@ -88,7 +88,7 @@ public class OfflineNodeCommand extends CLICommand {
         }
 
         if (errorOccurred) {
-            throw new AbortException("Error occured while performing this command, see previous stderr output.");
+            throw new AbortException(CLI_LISTPARAM_SUMMARY_ERROR_TEXT);
         }
         return 0;
     }

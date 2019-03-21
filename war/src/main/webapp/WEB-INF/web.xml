@@ -82,7 +82,7 @@ THE SOFTWARE.
   </filter>
 
   <!--
-	The Headers filter allows us to to override headers sent by the container
+	The Headers filter allows us to override headers sent by the container
 	that may be in conflict with what we want.  For example, Tomcat will set
 	Cache-Control: no-cache for any files behind the security-constraint
 	below.  So if Hudson is on a public server, and you want to only allow
@@ -153,7 +153,7 @@ THE SOFTWARE.
 
   <listener>
     <!-- Must be before WebAppMain in order to initialize the context before the first use of this class. -->
-    <listener-class>jenkins.util.SystemProperties</listener-class>
+    <listener-class>jenkins.util.SystemProperties$Listener</listener-class>
   </listener>
   <listener>
     <listener-class>hudson.WebAppMain</listener-class>

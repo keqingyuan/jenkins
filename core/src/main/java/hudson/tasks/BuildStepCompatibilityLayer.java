@@ -32,6 +32,7 @@ import hudson.model.Project;
 import hudson.model.AbstractBuild;
 import hudson.model.AbstractProject;
 import hudson.Launcher;
+import hudson.Util;
 
 import java.io.IOException;
 import java.util.Collection;
@@ -118,8 +119,13 @@ public abstract class BuildStepCompatibilityLayer implements BuildStep {
      *      Use {@link #perform(AbstractBuild, Launcher, BuildListener)} instead.
      */
     @Deprecated
-    public boolean perform(Build<?,?> build, Launcher launcher, BuildListener listener) throws InterruptedException, IOException {
-        throw new UnsupportedOperationException();
+    public boolean perform(Build<?, ?> build, Launcher launcher, BuildListener listener)
+            throws InterruptedException, IOException {       
+        if (build instanceof AbstractBuild && Util.isOverridden(BuildStepCompatibilityLayer.class, this.getClass(),
+                "perform", AbstractBuild.class, Launcher.class, BuildListener.class)) {
+            return perform((AbstractBuild<?, ?>) build, launcher, listener);
+        }
+        throw new AbstractMethodError();
     }
 
     /**

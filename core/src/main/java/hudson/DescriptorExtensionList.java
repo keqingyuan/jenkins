@@ -31,7 +31,6 @@ import jenkins.model.Jenkins;
 import hudson.model.ViewDescriptor;
 import hudson.model.Descriptor.FormException;
 import hudson.util.AdaptedIterator;
-import hudson.util.Memoizer;
 import hudson.util.Iterators.FlattenIterator;
 import hudson.slaves.NodeDescriptor;
 import hudson.tasks.Publisher;
@@ -39,7 +38,10 @@ import hudson.tasks.Publisher;
 import java.util.Collection;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -159,13 +161,13 @@ public class DescriptorExtensionList<T extends Describable<T>, D extends Descrip
     @Override
     public boolean add(D d) {
         boolean r = super.add(d);
-        hudson.getExtensionList(Descriptor.class).add(d);
+        getDescriptorExtensionList().add(d);
         return r;
     }
 
     @Override
     public boolean remove(Object o) {
-        hudson.getExtensionList(Descriptor.class).remove(o);
+        getDescriptorExtensionList().remove(o);
         return super.remove(o);
     }
 
@@ -174,7 +176,8 @@ public class DescriptorExtensionList<T extends Describable<T>, D extends Descrip
      */
     @Override
     protected Object getLoadLock() {
-        return this;
+        // Get a lock for the singleton extension list to prevent deadlocks (JENKINS-55361)
+        return getDescriptorExtensionList().getLoadLock();
     }
 
     /**
@@ -182,7 +185,12 @@ public class DescriptorExtensionList<T extends Describable<T>, D extends Descrip
      */
     @Override
     protected List<ExtensionComponent<D>> load() {
-        return _load(jenkins.getExtensionList(Descriptor.class).getComponents());
+        if (jenkins == null) {
+            // Should never happen on the real instance
+            LOGGER.log(Level.WARNING, "Cannot load extension components, because Jenkins instance has not been assigned yet");
+            return Collections.emptyList();
+        }
+        return _load(getDescriptorExtensionList().getComponents());
     }
 
     @Override
@@ -204,17 +212,19 @@ public class DescriptorExtensionList<T extends Describable<T>, D extends Descrip
         return r;
     }
 
+    private ExtensionList<Descriptor> getDescriptorExtensionList() {
+        return ExtensionList.lookup(Descriptor.class);
+    }
+
     /**
      * Stores manually registered Descriptor instances. Keyed by the {@link Describable} type.
      */
-    private static final Memoizer<Class,CopyOnWriteArrayList<ExtensionComponent<Descriptor>>> legacyDescriptors = new Memoizer<Class,CopyOnWriteArrayList<ExtensionComponent<Descriptor>>>() {
-        public CopyOnWriteArrayList compute(Class key) {
-            return new CopyOnWriteArrayList();
-        }
-    };
+    @SuppressWarnings("rawtypes")
+    private static final Map<Class, CopyOnWriteArrayList<ExtensionComponent<Descriptor>>> legacyDescriptors = new ConcurrentHashMap<>();
 
+    @SuppressWarnings({"unchecked", "rawtypes"})
     private static <T extends Describable<T>> CopyOnWriteArrayList<ExtensionComponent<Descriptor<T>>> getLegacyDescriptors(Class<T> type) {
-        return (CopyOnWriteArrayList)legacyDescriptors.get(type);
+        return legacyDescriptors.computeIfAbsent(type, key -> new CopyOnWriteArrayList());
     }
 
     /**

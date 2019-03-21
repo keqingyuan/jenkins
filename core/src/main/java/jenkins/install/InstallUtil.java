@@ -40,6 +40,7 @@ import javax.annotation.Nonnull;
 import javax.inject.Provider;
 
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.lang.StringUtils;
 import org.kohsuke.accmod.Restricted;
 import org.kohsuke.accmod.restrictions.NoExternalUse;
 
@@ -47,12 +48,12 @@ import com.google.common.base.Function;
 import com.thoughtworks.xstream.XStream;
 
 import hudson.Functions;
-import hudson.Main;
 import hudson.model.UpdateCenter.DownloadJob.InstallationStatus;
 import hudson.model.UpdateCenter.DownloadJob.Installing;
 import hudson.model.UpdateCenter.InstallationJob;
 import hudson.model.UpdateCenter.UpdateCenterJob;
 import hudson.util.VersionNumber;
+import java.util.logging.Level;
 import jenkins.model.Jenkins;
 import jenkins.util.SystemProperties;
 import jenkins.util.xml.XMLUtils;
@@ -68,7 +69,9 @@ public class InstallUtil {
     private static final Logger LOGGER = Logger.getLogger(InstallUtil.class.getName());
 
     // tests need this to be 1.0
-    private static final VersionNumber NEW_INSTALL_VERSION = new VersionNumber("1.0");
+    @Restricted(NoExternalUse.class)
+    public static final VersionNumber NEW_INSTALL_VERSION = new VersionNumber("1.0");
+    private static final VersionNumber FORCE_NEW_INSTALL_VERSION = new VersionNumber("0.0");
 
     /**
      * Simple chain pattern using iterator.next()
@@ -89,7 +92,6 @@ public class InstallUtil {
      */
     public static void proceedToNextStateFrom(InstallState prior) {
         InstallState next = getNextInstallState(prior);
-        if (Main.isDevelopmentMode) LOGGER.info("Install state tranisitioning from: " + prior + " to: " + next);
         if (next != null) {
             Jenkins.getInstance().setInstallState(next);
         }
@@ -98,37 +100,30 @@ public class InstallUtil {
     /**
      * Returns the next state during a transition from the current install state
      */
-    /*package*/ static InstallState getNextInstallState(final InstallState current) {
+    /*package*/ static InstallState getNextInstallState(InstallState current) {
         List<Function<Provider<InstallState>,InstallState>> installStateFilterChain = new ArrayList<>();
-        for (final InstallStateFilter setupExtension : InstallStateFilter.all()) {
-            installStateFilterChain.add(new Function<Provider<InstallState>, InstallState>() {
-                @Override
-                public InstallState apply(Provider<InstallState> next) {
-                    return setupExtension.getNextInstallState(current, next);
-                }
-            });
+        for (InstallStateFilter setupExtension : InstallStateFilter.all()) {
+            installStateFilterChain.add(next -> setupExtension.getNextInstallState(current, next));
         }
         // Terminal condition: getNextState() on the current install state
-        installStateFilterChain.add(new Function<Provider<InstallState>, InstallState>() {
-            @Override
-            public InstallState apply(Provider<InstallState> input) {
-                // Initially, install state is unknown and 
-                // needs to be determined
-                if (current == null || InstallState.UNKNOWN.equals(current)) {
-                    return getDefaultInstallState();
-                }
-                final Map<InstallState, InstallState> states = new HashMap<InstallState, InstallState>();
-                {
-                    states.put(InstallState.CREATE_ADMIN_USER, InstallState.INITIAL_SETUP_COMPLETED);
-                    states.put(InstallState.INITIAL_PLUGINS_INSTALLING, InstallState.CREATE_ADMIN_USER);
-                    states.put(InstallState.INITIAL_SECURITY_SETUP, InstallState.NEW);
-                    states.put(InstallState.RESTART, InstallState.RUNNING);
-                    states.put(InstallState.UPGRADE, InstallState.INITIAL_SETUP_COMPLETED);
-                    states.put(InstallState.DOWNGRADE, InstallState.INITIAL_SETUP_COMPLETED);
-                    states.put(InstallState.INITIAL_SETUP_COMPLETED, InstallState.RUNNING);
-                }
-                return states.get(current);
+        installStateFilterChain.add(input -> {
+            // Initially, install state is unknown and 
+            // needs to be determined
+            if (current == null || InstallState.UNKNOWN.equals(current)) {
+                return getDefaultInstallState();
             }
+            Map<InstallState, InstallState> states = new HashMap<>();
+            {
+                states.put(InstallState.CONFIGURE_INSTANCE, InstallState.INITIAL_SETUP_COMPLETED);
+                states.put(InstallState.CREATE_ADMIN_USER, InstallState.CONFIGURE_INSTANCE);
+                states.put(InstallState.INITIAL_PLUGINS_INSTALLING, InstallState.CREATE_ADMIN_USER);
+                states.put(InstallState.INITIAL_SECURITY_SETUP, InstallState.NEW);
+                states.put(InstallState.RESTART, InstallState.RUNNING);
+                states.put(InstallState.UPGRADE, InstallState.INITIAL_SETUP_COMPLETED);
+                states.put(InstallState.DOWNGRADE, InstallState.INITIAL_SETUP_COMPLETED);
+                states.put(InstallState.INITIAL_SETUP_COMPLETED, InstallState.RUNNING);
+            }
+            return states.get(current);
         });
         
         ProviderChain<InstallState> chain = new ProviderChain<>(installStateFilterChain.iterator());
@@ -166,7 +161,7 @@ public class InstallUtil {
 
         // Neither the top level config or the lastExecVersionFile have a version
         // stored in them, which means it's a new install.
-        if (lastRunVersion.compareTo(NEW_INSTALL_VERSION) == 0) {
+        if (FORCE_NEW_INSTALL_VERSION.equals(lastRunVersion) || lastRunVersion.compareTo(NEW_INSTALL_VERSION) == 0) {
             Jenkins j = Jenkins.getInstance();
             
             // Allow for skipping
@@ -181,11 +176,13 @@ public class InstallUtil {
                 }
             }
 
-            // Edge case: used Jenkins 1 but did not save the system config page,
-            // the version is not persisted and returns 1.0, so try to check if
-            // they actually did anything
-            if (!j.getItemMap().isEmpty() || !j.getNodes().isEmpty()) {
-                return InstallState.UPGRADE;
+            if (!FORCE_NEW_INSTALL_VERSION.equals(lastRunVersion)) {
+                // Edge case: used Jenkins 1 but did not save the system config page,
+                // the version is not persisted and returns 1.0, so try to check if
+                // they actually did anything
+                if (!j.getItemMap().isEmpty() || !j.getNodes().isEmpty()) {
+                    return InstallState.UPGRADE;
+                }
             }
             
             return InstallState.INITIAL_SECURITY_SETUP;
@@ -227,7 +224,13 @@ public class InstallUtil {
         File lastExecVersionFile = getLastExecVersionFile();
         if (lastExecVersionFile.exists()) {
             try {
-                return FileUtils.readFileToString(lastExecVersionFile);
+                String version = FileUtils.readFileToString(lastExecVersionFile);
+                // JENKINS-37438 blank will force the setup
+                // wizard regardless of current state of the system
+                if (StringUtils.isBlank(version)) {
+                    return FORCE_NEW_INSTALL_VERSION.toString();
+                }
+                return version;
             } catch (IOException e) {
                 LOGGER.log(SEVERE, "Unexpected Error. Unable to read " + lastExecVersionFile.getAbsolutePath(), e);
                 LOGGER.log(WARNING, "Unable to determine the last running version (see error above). Treating this as a restart. No plugins will be updated.");
@@ -246,6 +249,7 @@ public class InstallUtil {
                 try {
                     String lastVersion = XMLUtils.getValue("/hudson/version", configFile);
                     if (lastVersion.length() > 0) {
+                        LOGGER.log(Level.FINE, "discovered serialized lastVersion {0}", lastVersion);
                         return lastVersion;
                     }
                 } catch (Exception e) {

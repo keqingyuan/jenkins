@@ -24,8 +24,10 @@
 package hudson.model.labels;
 
 import static org.junit.Assert.*;
+import static org.junit.Assume.assumeFalse;
 
 import antlr.ANTLRException;
+import hudson.Functions;
 import hudson.Launcher;
 import hudson.model.AbstractBuild;
 import hudson.model.AbstractProject;
@@ -47,6 +49,7 @@ import org.jvnet.hudson.test.TestBuilder;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.Collections;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Future;
 
@@ -72,7 +75,7 @@ public class LabelExpressionTest {
         FreeStyleProject p1 = j.createFreeStyleProject();
         p1.getBuildersList().add(new TestBuilder() {
             public boolean perform(AbstractBuild<?, ?> build, Launcher launcher, BuildListener listener) throws InterruptedException, IOException {
-                seq.phase(0); // first, make sure the w32 slave is occupied
+                seq.phase(0); // first, make sure the w32 agent is occupied
                 seq.phase(2);
                 seq.done();
                 return true;
@@ -88,7 +91,7 @@ public class LabelExpressionTest {
 
         Future<FreeStyleBuild> f1 = p1.scheduleBuild2(0);
 
-        seq.phase(1); // we schedule p2 build after w32 slave is occupied
+        seq.phase(1); // we schedule p2 build after w32 agent is occupied
         Future<FreeStyleBuild> f2 = p2.scheduleBuild2(0);
 
         Thread.sleep(1000); // time window to ensure queue has tried to assign f2 build
@@ -189,6 +192,7 @@ public class LabelExpressionTest {
 
     @Test
     public void dataCompatibilityWithHostNameWithWhitespace() throws Exception {
+        assumeFalse("Windows can't have paths with colons, skipping", Functions.isWindows());
         DumbSlave slave = new DumbSlave("abc def (xyz) : test", "dummy",
                 j.createTmpDir().getPath(), "1", Mode.NORMAL, "", j.createComputerLauncher(null), RetentionStrategy.NOOP, Collections.EMPTY_LIST);
         j.jenkins.addNode(slave);
@@ -262,5 +266,17 @@ public class LabelExpressionTest {
                 return null;
             }
         });
+    }
+
+    @Test
+    public void parseLabel() throws Exception {
+        Set<LabelAtom> result = Label.parse("one two three");
+        String[] expected = {"one", "two", "three"};
+
+        for(String e : expected) {
+            assertTrue(result.contains(new LabelAtom(e)));
+        }
+
+        assertEquals(result.size(), expected.length);
     }
 }

@@ -37,12 +37,13 @@ import java.util.List;
 import java.util.logging.Logger;
 
 /**
+ * CLI Command, which disconnects nodes.
  * @author pjanouse
- * @since TODO
+ * @since 2.4
  */
 @Extension
 public class DisconnectNodeCommand extends CLICommand {
-    @Argument(metaVar = "NAME", usage = "Slave name, or empty string for master; comama-separated list is supported", required = true, multiValued = true)
+    @Argument(metaVar = "NAME", usage = "Slave name, or empty string for master; comma-separated list is supported", required = true, multiValued = true)
     private List<String> nodes;
 
     @Option(name = "-m", usage = "Record the reason about why you are disconnecting this node")
@@ -60,7 +61,7 @@ public class DisconnectNodeCommand extends CLICommand {
         boolean errorOccurred = false;
         final Jenkins jenkins = Jenkins.getActiveInstance();
 
-        final HashSet<String> hs = new HashSet<String>();
+        final HashSet<String> hs = new HashSet<>();
         hs.addAll(nodes);
 
         List<String> names = null;
@@ -94,7 +95,7 @@ public class DisconnectNodeCommand extends CLICommand {
         }
 
         if (errorOccurred) {
-            throw new AbortException("Error occured while performing this command, see previous stderr output.");
+            throw new AbortException(CLI_LISTPARAM_SUMMARY_ERROR_TEXT);
         }
         return 0;
     }
