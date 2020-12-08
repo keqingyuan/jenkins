@@ -45,8 +45,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.concurrent.CopyOnWriteArrayList;
-import javax.annotation.CheckForNull;
+import edu.umd.cs.findbugs.annotations.CheckForNull;
+import edu.umd.cs.findbugs.annotations.NonNull;
 
+import net.sf.json.JSONException;
 import org.kohsuke.stapler.Stapler;
 import net.sf.json.JSONObject;
 
@@ -73,10 +75,10 @@ public class DescriptorExtensionList<T extends Describable<T>, D extends Descrip
     @SuppressWarnings({"unchecked", "rawtypes"})
     public static <T extends Describable<T>,D extends Descriptor<T>>
     DescriptorExtensionList<T,D> createDescriptorList(Jenkins jenkins, Class<T> describableType) {
-        if (describableType == (Class) Publisher.class) {
+        if (describableType == Publisher.class) {
             return (DescriptorExtensionList) new Publisher.DescriptorExtensionListImpl(jenkins);
         }
-        return new DescriptorExtensionList<T,D>(jenkins,describableType);
+        return new DescriptorExtensionList<>(jenkins, describableType);
     }
 
     /**
@@ -115,6 +117,7 @@ public class DescriptorExtensionList<T extends Describable<T>, D extends Descrip
      *      Fully qualified name of the descriptor, not the describable.
      * @deprecated {@link Descriptor#getId} is supposed to be used for new code, not the descriptor class name.
      */
+    @Deprecated
     public D find(String fqcn) {
         return Descriptor.find(this,fqcn);
     }
@@ -131,10 +134,14 @@ public class DescriptorExtensionList<T extends Describable<T>, D extends Descrip
     }
 
     /**
-     * Creates a new instance of a {@link Describable}
-     * from the structured form submission data posted
-     * by a radio button group.
+     * Creates a new instance of a {@link Describable} from the structured form submission data posted by a radio button group.
+     * @param config Submitted configuration for Radio List
+     * @return New instance.
+     *         {@code null} if none was selected in the radio list or if the value is filtered by a {@link hudson.model.DescriptorVisibilityFilter}
+     * @throws FormException Data submission error
+     * @since 1.312
      */
+    @CheckForNull
     public T newInstanceFromRadioList(JSONObject config) throws FormException {
         if(config.isNullObject())
             return null;    // none was selected
@@ -142,8 +149,21 @@ public class DescriptorExtensionList<T extends Describable<T>, D extends Descrip
         return get(idx).newInstance(Stapler.getCurrentRequest(),config);
     }
 
-    public T newInstanceFromRadioList(JSONObject parent, String name) throws FormException {
-        return newInstanceFromRadioList(parent.getJSONObject(name));
+    /**
+     * Creates a new instance of a {@link Describable} from the structured form submission data posted by a radio list.
+     * @since 1.312
+     * @param name Name of the form field
+     * @return Created instance.
+     *         {@code null} if none was selected in the radio list or if the value is filtered by a {@link hudson.model.DescriptorVisibilityFilter}
+     * @throws FormException Data submission error
+     */
+    @CheckForNull
+    public T newInstanceFromRadioList(@NonNull JSONObject parent, @NonNull String name) throws FormException {
+        try {
+            return newInstanceFromRadioList(parent.getJSONObject(name));
+        } catch (JSONException ex) {
+            throw new FormException(ex, name);
+        }
     }
 
     /**
@@ -199,7 +219,7 @@ public class DescriptorExtensionList<T extends Describable<T>, D extends Descrip
     }
 
     private List<ExtensionComponent<D>> _load(Iterable<ExtensionComponent<Descriptor>> set) {
-        List<ExtensionComponent<D>> r = new ArrayList<ExtensionComponent<D>>();
+        List<ExtensionComponent<D>> r = new ArrayList<>();
         for( ExtensionComponent<Descriptor> c : set ) {
             Descriptor d = c.getInstance();
             try {

@@ -31,7 +31,7 @@ import java.util.AbstractCollection;
 import java.util.Iterator;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CopyOnWriteArraySet;
-import javax.annotation.Nonnull;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import jenkins.security.NotReallyRoleSensitiveCallable;
 
 /**
@@ -42,7 +42,7 @@ public class ResourceController {
     /**
      * {@link ResourceList}s that are used by activities that are in progress.
      */
-    private final Set<ResourceActivity> inProgress = new CopyOnWriteArraySet<ResourceActivity>();
+    private final Set<ResourceActivity> inProgress = new CopyOnWriteArraySet<>();
 
     /**
      * View of {@link #inProgress} that exposes its {@link ResourceList}.
@@ -76,7 +76,7 @@ public class ResourceController {
      * @throws InterruptedException
      *      the thread can be interrupted while waiting for the available resources.
      */
-    public void execute(@Nonnull Runnable task, final ResourceActivity activity ) throws InterruptedException {
+    public void execute(@NonNull Runnable task, final ResourceActivity activity ) throws InterruptedException {
         final ResourceList resources = activity.getResourceList();
         _withLock(new NotReallyRoleSensitiveCallable<Void,InterruptedException>() {
             @Override

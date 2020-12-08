@@ -23,6 +23,7 @@
  */
 package hudson.util;
 
+import com.google.common.collect.ImmutableSet;
 import com.infradna.tool.bridge_method_injector.WithBridgeMethods;
 import com.thoughtworks.xstream.converters.Converter;
 import com.thoughtworks.xstream.converters.MarshallingContext;
@@ -40,6 +41,10 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Collection whose change is notified to the parent object for persistence.
@@ -48,7 +53,10 @@ import java.util.List;
  * @since 1.333
  */
 public class PersistedList<T> extends AbstractList<T> {
-    protected final CopyOnWriteList<T> data = new CopyOnWriteList<T>();
+
+    private static final Logger LOGGER = Logger.getLogger(PersistedList.class.getName());
+
+    protected final CopyOnWriteList<T> data = new CopyOnWriteList<>();
     protected Saveable owner = Saveable.NOOP;
 
     protected PersistedList() {
@@ -100,7 +108,7 @@ public class PersistedList<T> extends AbstractList<T> {
      * Gets all instances that matches the given type.
      */
     public <U extends T> List<U> getAll(Class<U> type) {
-        List<U> r = new ArrayList<U>();
+        List<U> r = new ArrayList<>();
         for (T t : data)
             if(type.isInstance(t))
                 r.add(type.cast(t));
@@ -131,7 +139,7 @@ public class PersistedList<T> extends AbstractList<T> {
      * as copy-on-write semantics make this rather slow.
      */
     public void replace(T from, T to) throws IOException {
-        List<T> copy = new ArrayList<T>(data.getView());
+        List<T> copy = new ArrayList<>(data.getView());
         for (int i=0; i<copy.size(); i++) {
             if (copy.get(i).equals(from))
                 copy.set(i,to);
@@ -170,7 +178,30 @@ public class PersistedList<T> extends AbstractList<T> {
      * Called when a list is mutated.
      */
     protected void onModified() throws IOException {
-        owner.save();
+        try {
+            owner.save();
+        } catch (IOException x) {
+            Optional<T> ignored = stream().filter(PersistedList::ignoreSerializationErrors).findAny();
+            if (ignored.isPresent()) {
+                LOGGER.log(Level.WARNING, "Ignoring serialization errors in " + ignored.get() + "; update your parent POM to 4.8 or newer", x);
+            } else {
+                throw x;
+            }
+        }
+    }
+
+    // TODO until https://github.com/jenkinsci/jenkins-test-harness/pull/243 is widely adopted:
+    private static final Set<String> IGNORED_CLASSES = ImmutableSet.of("org.jvnet.hudson.test.TestBuilder", "org.jvnet.hudson.test.TestNotifier");
+    // (SingleFileSCM & ExtractResourceWithChangesSCM would also be nice to suppress, but they are not kept in a PersistedList.)
+    private static boolean ignoreSerializationErrors(Object o) {
+        if (o != null) {
+            for (Class<?> c = o.getClass(); c != Object.class; c = c.getSuperclass()) {
+                if (IGNORED_CLASSES.contains(c.getName())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**

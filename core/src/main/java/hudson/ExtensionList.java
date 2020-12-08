@@ -45,8 +45,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import javax.annotation.CheckForNull;
-import javax.annotation.Nonnull;
+import edu.umd.cs.findbugs.annotations.CheckForNull;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import jenkins.util.io.OnMaster;
 
 /**
@@ -86,7 +86,7 @@ public class ExtensionList<T> extends AbstractList<T> implements OnMaster {
     @CopyOnWrite
     private volatile List<ExtensionComponent<T>> extensions;
 
-    private final List<ExtensionListListener> listeners = new CopyOnWriteArrayList<ExtensionListListener>();
+    private final List<ExtensionListListener> listeners = new CopyOnWriteArrayList<>();
 
     /**
      * Place to store manually registered instances with the per-Hudson scope.
@@ -104,7 +104,7 @@ public class ExtensionList<T> extends AbstractList<T> implements OnMaster {
     }
 
     protected ExtensionList(Jenkins jenkins, Class<T> extensionType) {
-        this(jenkins,extensionType,new CopyOnWriteArrayList<ExtensionComponent<T>>());
+        this(jenkins,extensionType, new CopyOnWriteArrayList<>());
     }
 
     /**
@@ -137,7 +137,7 @@ public class ExtensionList<T> extends AbstractList<T> implements OnMaster {
      * Add a listener to the extension list.
      * @param listener The listener.
      */
-    public void addListener(@Nonnull ExtensionListListener listener) {
+    public void addListener(@NonNull ExtensionListListener listener) {
         listeners.add(listener);
     }
 
@@ -145,7 +145,7 @@ public class ExtensionList<T> extends AbstractList<T> implements OnMaster {
      * Looks for the extension instance of the given type (subclasses excluded),
      * or return null.
      */
-    public @CheckForNull <U extends T> U get(@Nonnull Class<U> type) {
+    public @CheckForNull <U extends T> U get(@NonNull Class<U> type) {
         for (T ext : this)
             if(ext.getClass()==type)
                 return type.cast(ext);
@@ -158,7 +158,7 @@ public class ExtensionList<T> extends AbstractList<T> implements OnMaster {
      * 
      * Meant to simplify call inside @Extension annotated class to retrieve their own instance.
      */
-    public @Nonnull <U extends T> U getInstance(@Nonnull Class<U> type) throws IllegalStateException {
+    public @NonNull <U extends T> U getInstance(@NonNull Class<U> type) throws IllegalStateException {
         for (T ext : this)
             if(ext.getClass()==type)
                 return type.cast(ext);
@@ -167,7 +167,7 @@ public class ExtensionList<T> extends AbstractList<T> implements OnMaster {
     }
 
     @Override
-    public @Nonnull Iterator<T> iterator() {
+    public @NonNull Iterator<T> iterator() {
         // we need to intercept mutation, so for now don't allow Iterator.remove 
         return new AdaptedIterator<ExtensionComponent<T>,T>(Iterators.readOnly(ensureLoaded().iterator())) {
             protected T adapt(ExtensionComponent<T> item) {
@@ -237,7 +237,7 @@ public class ExtensionList<T> extends AbstractList<T> implements OnMaster {
     private synchronized boolean removeSync(Object o) {
         boolean removed = removeComponent(legacyInstances, o);
         if(extensions!=null) {
-            List<ExtensionComponent<T>> r = new ArrayList<ExtensionComponent<T>>(extensions);
+            List<ExtensionComponent<T>> r = new ArrayList<>(extensions);
             removed |= removeComponent(r,o);
             extensions = sort(r);
         }
@@ -279,11 +279,11 @@ public class ExtensionList<T> extends AbstractList<T> implements OnMaster {
     }
 
     private synchronized boolean addSync(T t) {
-        legacyInstances.add(new ExtensionComponent<T>(t));
+        legacyInstances.add(new ExtensionComponent<>(t));
         // if we've already filled extensions, add it
         if(extensions!=null) {
-            List<ExtensionComponent<T>> r = new ArrayList<ExtensionComponent<T>>(extensions);
-            r.add(new ExtensionComponent<T>(t));
+            List<ExtensionComponent<T>> r = new ArrayList<>(extensions);
+            r.add(new ExtensionComponent<>(t));
             extensions = sort(r);
         }
         return true;
@@ -309,7 +309,7 @@ public class ExtensionList<T> extends AbstractList<T> implements OnMaster {
     private List<ExtensionComponent<T>> ensureLoaded() {
         if(extensions!=null)
             return extensions; // already loaded
-        if (jenkins.getInitLevel().compareTo(InitMilestone.PLUGINS_PREPARED)<0)
+        if (jenkins == null || jenkins.getInitLevel().compareTo(InitMilestone.PLUGINS_PREPARED) < 0)
             return legacyInstances; // can't perform the auto discovery until all plugins are loaded, so just make the legacy instances visible
 
         synchronized (getLoadLock()) {
@@ -373,8 +373,10 @@ public class ExtensionList<T> extends AbstractList<T> implements OnMaster {
      * Loads all the extensions.
      */
     protected List<ExtensionComponent<T>> load() {
-        if (LOGGER.isLoggable(Level.FINE))
-            LOGGER.log(Level.FINE,"Loading ExtensionList: "+extensionType, new Throwable());
+        LOGGER.fine(() -> String.format("Loading ExtensionList '%s'", extensionType.getName()));
+        if (LOGGER.isLoggable(Level.FINER)) {
+            LOGGER.log(Level.FINER, String.format("Loading ExtensionList '%s' from", extensionType.getName()), new Throwable("Only present for stacktrace information"));
+        }
 
         return jenkins.getPluginManager().getPluginStrategy().findComponents(extensionType, hudson);
     }
@@ -395,7 +397,7 @@ public class ExtensionList<T> extends AbstractList<T> implements OnMaster {
      * The implementation should copy a list, do a sort, and return the new instance.
      */
     protected List<ExtensionComponent<T>> sort(List<ExtensionComponent<T>> r) {
-        r = new ArrayList<ExtensionComponent<T>>(r);
+        r = new ArrayList<>(r);
         Collections.sort(r);
         return r;
     }
@@ -412,7 +414,7 @@ public class ExtensionList<T> extends AbstractList<T> implements OnMaster {
     @SuppressWarnings({"unchecked", "rawtypes"})
     public static <T> ExtensionList<T> create(Jenkins jenkins, Class<T> type) {
         if(type.getAnnotation(LegacyInstancesAreScopedToHudson.class)!=null)
-            return new ExtensionList<T>(jenkins,type);
+            return new ExtensionList<>(jenkins, type);
         else {
             return new ExtensionList(jenkins, type, staticLegacyInstances.computeIfAbsent(type, key -> new CopyOnWriteArrayList()));
         }
@@ -427,7 +429,7 @@ public class ExtensionList<T> extends AbstractList<T> implements OnMaster {
      * @return some list
      * @since 1.572
      */
-    public static @Nonnull <T> ExtensionList<T> lookup(Class<T> type) {
+    public static @NonNull <T> ExtensionList<T> lookup(Class<T> type) {
         Jenkins j = Jenkins.getInstanceOrNull();
         return j == null ? create((Jenkins) null, type) : j.getExtensionList(type);
     }
@@ -443,7 +445,7 @@ public class ExtensionList<T> extends AbstractList<T> implements OnMaster {
      *
      * @since 2.87
      */
-    public static @Nonnull <U> U lookupSingleton(Class<U> type) {
+    public static @NonNull <U> U lookupSingleton(Class<U> type) {
         ExtensionList<U> all = lookup(type);
         if (all.size() != 1) {
             throw new IllegalStateException("Expected 1 instance of " + type.getName() + " but got " + all.size());

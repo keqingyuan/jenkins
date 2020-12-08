@@ -47,10 +47,10 @@ import java.util.AbstractList;
 import java.util.Iterator;
 import java.util.WeakHashMap;
 import jenkins.security.QueueItemAuthenticator;
-import org.acegisecurity.Authentication;
 
-import javax.annotation.Nonnull;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import jenkins.model.Jenkins;
+import org.springframework.security.core.Authentication;
 
 /**
  * One step of the whole build process.
@@ -102,9 +102,9 @@ public interface BuildStep {
      * <p>When this build step needs to make (direct or indirect) permission checks to {@link ACL}
      * (for example, to locate other projects by name, build them, or access their artifacts)
      * then it must be run under a specific {@link Authentication}.
-     * In such a case, the implementation should check whether {@link Jenkins#getAuthentication} is {@link ACL#SYSTEM},
+     * In such a case, the implementation should check whether {@link Jenkins#getAuthentication2} is {@link ACL#SYSTEM2},
      * and if so, replace it for the duration of this step with {@link Jenkins#ANONYMOUS}.
-     * (Either using {@link ACL#impersonate}, or by making explicit calls to {@link ACL#hasPermission(Authentication, Permission)}.)
+     * (Either using {@link ACL#impersonate2}, or by making explicit calls to {@link ACL#hasPermission2(Authentication, Permission)}.)
      * This would typically happen when no {@link QueueItemAuthenticator} was available, configured, and active.
      *
      * @return
@@ -157,7 +157,7 @@ public interface BuildStep {
      * @return
      *      can be empty but never null.
      */
-    @Nonnull
+    @NonNull
     Collection<? extends Action> getProjectActions(AbstractProject<?,?> project);
 
 
@@ -232,7 +232,7 @@ public interface BuildStep {
      *      {@link Extension} for registration.
      */
     @Deprecated
-    List<Descriptor<Builder>> BUILDERS = new DescriptorList<Builder>(Builder.class);
+    List<Descriptor<Builder>> BUILDERS = new DescriptorList<>(Builder.class);
 
     /**
      * List of all installed publishers.
@@ -259,14 +259,14 @@ public interface BuildStep {
          * {@link Descriptor}s are actually stored in here.
          * Since {@link PublisherList} lives longer than {@link jenkins.model.Jenkins} we cannot directly use {@link ExtensionList}.
          */
-        private final DescriptorList<Publisher> core = new DescriptorList<Publisher>(Publisher.class);
+        private final DescriptorList<Publisher> core = new DescriptorList<>(Publisher.class);
 
         /**
          * For descriptors that are manually registered, remember what kind it was since
          * older plugins don't extend from neither {@link Recorder} nor {@link Notifier}.
          */
         /*package*/ static final WeakHashMap<Descriptor<Publisher>,Class<? extends Publisher>/*either Recorder.class or Notifier.class*/>
-                KIND = new WeakHashMap<Descriptor<Publisher>, Class<? extends Publisher>>();
+                KIND = new WeakHashMap<>();
 
         private PublisherList() {
         }

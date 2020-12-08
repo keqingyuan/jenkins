@@ -28,17 +28,14 @@ import com.gargoylesoftware.htmlunit.WebRequest;
 import com.gargoylesoftware.htmlunit.javascript.host.event.Event;
 import hudson.*;
 import hudson.model.queue.QueueTaskFuture;
-import hudson.security.AccessDeniedException2;
+import hudson.security.AccessDeniedException3;
 import hudson.tasks.*;
 import hudson.security.HudsonPrivateSecurityRealm;
 import hudson.security.GlobalMatrixAuthorizationStrategy;
 
-import java.io.Closeable;
-import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Collections;
 
-import hudson.util.Scrambler;
 import org.jvnet.hudson.reactor.ReactorException;
 import org.jvnet.hudson.test.FakeChangeLogSCM;
 import hudson.scm.SCMRevisionState;
@@ -82,7 +79,12 @@ import java.util.Collection;
 import org.junit.Rule;
 import org.junit.Test;
 import org.jvnet.hudson.test.JenkinsRule;
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -117,11 +119,11 @@ public class ProjectTest {
         j.jenkins.reload();
         assertEquals("All persistent data should be saved.", "description", p.description);
         assertEquals("All persistent data should be saved.", 5, p.nextBuildNumber);
-        assertEquals("All persistent data should be saved", true, p.disabled);
+        assertTrue("All persistent data should be saved", p.disabled);
     }
     
     @Test
-    public void testOnCreateFromScratch() throws IOException, Exception{
+    public void testOnCreateFromScratch() throws Exception{
         FreeStyleProject p = j.createFreeStyleProject("project");
         j.buildAndAssertSuccess(p);
         p.removeRun(p.getLastBuild());
@@ -133,15 +135,15 @@ public class ProjectTest {
     }
     
     @Test
-    public void testOnLoad() throws IOException, Exception{
+    public void testOnLoad() throws Exception{
         FreeStyleProject p = j.createFreeStyleProject("project");
         j.buildAndAssertSuccess(p);
         p.removeRun(p.getLastBuild());
         createAction = true;
         p.onLoad(j.jenkins, "project");
-        assertTrue("Project should have a build.", p.getLastBuild()!=null);
-        assertTrue("Project should have a scm.", p.getScm()!=null);
-        assertTrue("Project should have Transient Action TransientAction.", p.getAction(TransientAction.class)!=null);
+        assertNotNull("Project should have a build.", p.getLastBuild());
+        assertNotNull("Project should have a scm.", p.getScm());
+        assertNotNull("Project should have Transient Action TransientAction.", p.getAction(TransientAction.class));
         createAction = false;
     }
     
@@ -156,7 +158,7 @@ public class ProjectTest {
     }
     
     @Test
-    public void testPerformDelete() throws IOException, Exception{
+    public void testPerformDelete() throws Exception{
         FreeStyleProject p = j.createFreeStyleProject("project");
         p.performDelete();
         assertFalse("Project should be deleted from disk.", p.getConfigFile().exists());
@@ -254,7 +256,7 @@ public class ProjectTest {
         HtmlForm form = j.createWebClient().goTo(p.getUrl() + "/configure").getFormByName("config");
         ((HtmlElement)form.getByXPath("//div[@class='advancedLink']//button").get(0)).click();
         // required due to the new default behavior of click
-        form.getInputByName("hasCustomScmCheckoutRetryCount").click(new Event(), true);
+        form.getInputByName("hasCustomScmCheckoutRetryCount").click(new Event(), false, false, false, true);
         form.getInputByName("scmCheckoutRetryCount").setValueAttribute("7");
         j.submit(form);
         assertEquals("Scm retry count was set.", 7, p.getScmCheckoutRetryCount());
@@ -326,7 +328,7 @@ public class ProjectTest {
     }
     
     @Test
-    public void testSaveAfterSet() throws Exception, ReactorException {
+    public void testSaveAfterSet() throws Exception {
         FreeStyleProject p = j.createFreeStyleProject("project");
         p.setScm(new NullSCM());
         p.setScmCheckoutStrategy(new SCMCheckoutStrategyImpl());
@@ -373,7 +375,7 @@ public class ProjectTest {
         FreeStyleProject downstream = j.createFreeStyleProject("project-downstream");
         downstream.getBuildersList().add(Functions.isWindows() ? new BatchFile("ping -n 10 127.0.0.1 >nul") : new Shell("sleep 10"));
         p.getPublishersList().add(new BuildTrigger(Collections.singleton(downstream), Result.SUCCESS));
-        Jenkins.getInstance().rebuildDependencyGraph();
+        Jenkins.get().rebuildDependencyGraph();
         p.setBlockBuildWhenDownstreamBuilding(true);
         QueueTaskFuture<FreeStyleBuild> b2 = waitForStart(downstream);
         assertInstanceOf("Build can not start because build of downstream project has not finished.", p.getCauseOfBlockage(), BecauseOfDownstreamBuildInProgress.class);
@@ -437,7 +439,7 @@ public class ProjectTest {
     }
     
     @Test
-    public void testCheckout() throws IOException, Exception{
+    public void testCheckout() throws Exception{
         SCM scm = new NullSCM();
         FreeStyleProject p = j.createFreeStyleProject("project");
         Slave slave = j.createOnlineSlave();
@@ -546,7 +548,7 @@ public class ProjectTest {
             fail("User should not have permission to build project");
         }
         catch(Exception e){
-            if(!(e.getClass().isAssignableFrom(AccessDeniedException2.class))){
+            if(!(e.getClass().isAssignableFrom(AccessDeniedException3.class))){
                fail("AccessDeniedException should be thrown.");
             }
         } 
@@ -565,7 +567,7 @@ public class ProjectTest {
             fail("User should not have permission to build project");
         }
         catch(Exception e){
-            if(!(e.getClass().isAssignableFrom(AccessDeniedException2.class))){
+            if(!(e.getClass().isAssignableFrom(AccessDeniedException3.class))){
                fail("AccessDeniedException should be thrown.");
             }
         } 
@@ -602,7 +604,7 @@ public class ProjectTest {
             fail("User should not have permission to build project");
         }
         catch(Exception e){
-            if(!(e.getClass().isAssignableFrom(AccessDeniedException2.class))){
+            if(!(e.getClass().isAssignableFrom(AccessDeniedException3.class))){
                fail("AccessDeniedException should be thrown.");
             }
         } 
@@ -640,7 +642,7 @@ public class ProjectTest {
             fail("User should not have permission to build project");
         }
         catch(Exception e){
-            if(!(e.getClass().isAssignableFrom(AccessDeniedException2.class))){
+            if(!(e.getClass().isAssignableFrom(AccessDeniedException3.class))){
                fail("AccessDeniedException should be thrown.");
             }
         } 
@@ -678,7 +680,7 @@ public class ProjectTest {
             fail("User should not have permission to build project");
         }
         catch(Exception e){
-            if(!(e.getClass().isAssignableFrom(AccessDeniedException2.class))){
+            if(!(e.getClass().isAssignableFrom(AccessDeniedException3.class))){
                fail("AccessDeniedException should be thrown.");
             }
         } 
@@ -705,7 +707,7 @@ public class ProjectTest {
      */
     @Test
     public void testJobSubmittedShouldSpawnCloud() throws Exception {
-        /**
+        /*
          * Setup a project with an SCM. Jenkins should have no executors in itself. 
          */
         FreeStyleProject proj = j.createFreeStyleProject("JENKINS-21394-spawn");        
@@ -765,7 +767,7 @@ public class ProjectTest {
         
         t.new Runner().run();
         
-        /**
+        /*
          * Assert that the log contains the correct message.
          */
         HtmlPage log = j.createWebClient().getPage(proj, "scmPollLog");
@@ -950,13 +952,13 @@ public class ProjectTest {
         public String projectName;
 
         @Override
-        public Executable createExecutable() throws IOException {
+        public Executable createExecutable() {
             return null;
         }
 
         @Override
         public Task getOwnerTask() {
-            return (Task) Jenkins.getInstance().getItem(projectName);
+            return (Task) Jenkins.get().getItem(projectName);
         }
 
         @Override

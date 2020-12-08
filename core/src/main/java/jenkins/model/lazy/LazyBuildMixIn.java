@@ -41,8 +41,8 @@ import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import javax.annotation.CheckForNull;
-import javax.annotation.Nonnull;
+import edu.umd.cs.findbugs.annotations.CheckForNull;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import org.kohsuke.accmod.Restricted;
 import org.kohsuke.accmod.restrictions.DoNotUse;
 
@@ -62,7 +62,7 @@ public abstract class LazyBuildMixIn<JobT extends Job<JobT,RunT> & Queue.Task & 
     private static final Logger LOGGER = Logger.getLogger(LazyBuildMixIn.class.getName());
 
     @SuppressWarnings("deprecation") // [JENKINS-15156] builds accessed before onLoad or onCreatedFromScratch called
-    private @Nonnull RunMap<RunT> builds = new RunMap<RunT>();
+    private @NonNull RunMap<RunT> builds = new RunMap<>();
 
     /**
      * Initializes this mixin.
@@ -77,7 +77,7 @@ public abstract class LazyBuildMixIn<JobT extends Job<JobT,RunT> & Queue.Task & 
      * Normally should not be called as such.
      * Note that the initial value is replaced during {@link #onCreatedFromScratch} or {@link #onLoad}.
      */
-    public final @Nonnull RunMap<RunT> getRunMap() {
+    public final @NonNull RunMap<RunT> getRunMap() {
         return builds;
     }
 
@@ -137,8 +137,9 @@ public abstract class LazyBuildMixIn<JobT extends Job<JobT,RunT> & Queue.Task & 
     }
 
     private RunMap<RunT> createBuildRunMap() {
-        RunMap<RunT> r = new RunMap<RunT>(asJob().getBuildDir(), new RunMap.Constructor<RunT>() {
-            @Override public RunT create(File dir) throws IOException {
+        RunMap<RunT> r = new RunMap<>(asJob().getBuildDir(), new RunMap.Constructor<RunT>() {
+            @Override
+            public RunT create(File dir) throws IOException {
                 return loadBuild(dir);
             }
         });
@@ -163,14 +164,10 @@ public abstract class LazyBuildMixIn<JobT extends Job<JobT,RunT> & Queue.Task & 
     public RunT loadBuild(File dir) throws IOException {
         try {
             return getBuildClass().getConstructor(asJob().getClass(), File.class).newInstance(asJob(), dir);
-        } catch (InstantiationException e) {
-            throw new Error(e);
-        } catch (IllegalAccessException e) {
+        } catch (InstantiationException | NoSuchMethodException | IllegalAccessException e) {
             throw new Error(e);
         } catch (InvocationTargetException e) {
             throw handleInvocationTargetException(e);
-        } catch (NoSuchMethodException e) {
-            throw new Error(e);
         }
     }
 
@@ -329,7 +326,7 @@ public abstract class LazyBuildMixIn<JobT extends Job<JobT,RunT> & Queue.Task & 
          */
         public final synchronized BuildReference<RunT> createReference() {
             if (selfReference == null) {
-                selfReference = new BuildReference<RunT>(asRun().getId(), asRun());
+                selfReference = new BuildReference<>(asRun().getId(), asRun());
             }
             return selfReference;
         }

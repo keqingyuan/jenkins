@@ -29,8 +29,11 @@ import hudson.views.ViewsTabBar;
 
 import java.io.IOException;
 import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import jenkins.model.Jenkins;
+
+import edu.umd.cs.findbugs.annotations.NonNull;
 
 /**
  * Container of {@link View}s.
@@ -57,6 +60,27 @@ public interface ViewGroup extends Saveable, ModelObject, AccessControlled {
      *      can be empty but never null.
      */
     Collection<View> getViews();
+
+    /**
+     * Gets all the views in this group including nested views.
+     *
+     * @return
+     *      can be empty but never null.
+     *
+     * @since 2.174
+     */
+    @NonNull
+    default Collection<View> getAllViews() {
+        final Collection<View> views = new LinkedHashSet<>(getViews());
+
+        for (View view : getViews()) {
+            if (view instanceof ViewGroup) {
+                views.addAll(((ViewGroup) view).getAllViews());
+            }
+        }
+
+        return views;
+    }
 
     /**
      * Gets a view of the given name.
@@ -117,7 +141,7 @@ public interface ViewGroup extends Saveable, ModelObject, AccessControlled {
      * @since 1.417
      */
     default ItemGroup<? extends TopLevelItem> getItemGroup() {
-        return Jenkins.getInstance();
+        return Jenkins.get();
     }
 
     /**
@@ -133,7 +157,7 @@ public interface ViewGroup extends Saveable, ModelObject, AccessControlled {
      * @since 1.417
      */
     default List<Action> getViewActions() {
-        return Jenkins.getInstance().getActions();
+        return Jenkins.get().getActions();
     }
     
 }

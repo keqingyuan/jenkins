@@ -1,10 +1,11 @@
 package jenkins.util;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.Issue;
 
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 
 public class UrlHelperTest {
 
@@ -145,5 +146,11 @@ public class UrlHelperTest {
         assertTrue(UrlHelper.isValidRootUrl("http://my-server.domain......:8080/jenkins"));
         assertTrue(UrlHelper.isValidRootUrl("http://jenkins.com."));
         assertTrue(UrlHelper.isValidRootUrl("http://jenkins.com......"));
+    }
+
+    @Test
+    @Issue("SECURITY-1471")
+    public void ensureJavaScriptSchemaIsNotAllowed() {
+        assertFalse(UrlHelper.isValidRootUrl("javascript:alert(123)"));
     }
 }

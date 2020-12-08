@@ -25,6 +25,7 @@ package hudson.console;
 
 import hudson.Extension;
 import hudson.MarkupText;
+import hudson.Util;
 import jenkins.model.Jenkins;
 import org.jenkinsci.Symbol;
 import org.kohsuke.accmod.Restricted;
@@ -66,10 +67,10 @@ public class HyperlinkNote extends ConsoleNote {
                 url = req.getContextPath()+url;
             } else {
                 // otherwise presumably this is rendered for e-mails and other non-HTTP stuff
-                url = Jenkins.getInstance().getRootUrl()+url.substring(1);
+                url = Jenkins.get().getRootUrl()+url.substring(1);
             }
         }
-        text.addMarkup(charPos, charPos + length, "<a href='" + url + "'"+extraAttributes()+">", "</a>");
+        text.addMarkup(charPos, charPos + length, "<a href='" + Util.escape(url) + "'"+extraAttributes()+">", "</a>");
         return null;
     }
 

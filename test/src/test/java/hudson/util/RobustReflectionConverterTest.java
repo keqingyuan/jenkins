@@ -45,7 +45,11 @@ import java.util.Collections;
 import java.util.Map;
 
 import jenkins.model.Jenkins;
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import jenkins.security.apitoken.ApiTokenTestHelper;
 import net.sf.json.JSONObject;
@@ -72,12 +76,12 @@ public class RobustReflectionConverterTest {
     @Test public void randomExceptionsReported() throws Exception {
         FreeStyleProject p = r.jenkins.getItemByFullName("j", FreeStyleProject.class);
         assertNotNull(p);
-        assertEquals(Collections.emptyMap(), p.getTriggers());
+        assertTrue("There should be no triggers", p.getTriggers().isEmpty());
         OldDataMonitor odm = (OldDataMonitor) r.jenkins.getAdministrativeMonitor("OldData");
         Map<Saveable,OldDataMonitor.VersionRange> data = odm.getData();
         assertEquals(Collections.singleton(p), data.keySet());
         String text = data.values().iterator().next().extra;
-        assertTrue(text, text.contains("Could not call hudson.triggers.TimerTrigger.readResolve"));
+        assertTrue(text, text.contains("hudson.triggers.TimerTrigger.readResolve"));
     }
     
     // Testing describable object to demonstrate what is expected with RobustReflectionConverter#addCriticalField
@@ -104,7 +108,7 @@ public class RobustReflectionConverterTest {
         }
         
         private Object readResolve() throws Exception {
-            if (!ACL.SYSTEM.equals(Jenkins.getAuthentication())) {
+            if (!ACL.SYSTEM2.equals(Jenkins.getAuthentication2())) {
                 // called via REST / CLI with authentication
                 if (!isAcceptable()) {
                     // Reject invalid configuration via REST / CLI.
@@ -163,7 +167,7 @@ public class RobustReflectionConverterTest {
                 // unfortunately, default newInstance bypasses newInstances for members.
                 formData = formData.getJSONObject("keywordProperty");
                 @SuppressWarnings("unchecked")
-                Descriptor<AcceptOnlySpecificKeyword> d = Jenkins.getInstance().getDescriptor(AcceptOnlySpecificKeyword.class);
+                Descriptor<AcceptOnlySpecificKeyword> d = Jenkins.get().getDescriptor(AcceptOnlySpecificKeyword.class);
                 return new KeywordProperty(
                         d.newInstance(req, formData.getJSONObject("nonCriticalField")),
                         d.newInstance(req, formData.getJSONObject("criticalField"))

@@ -35,8 +35,8 @@ import hudson.remoting.Channel;
 
 import java.io.IOException;
 
-import javax.annotation.CheckForNull;
-import javax.annotation.Nonnull;
+import edu.umd.cs.findbugs.annotations.CheckForNull;
+import edu.umd.cs.findbugs.annotations.NonNull;
 
 /**
  * Receives notifications about status changes of {@link Computer}s.
@@ -139,6 +139,11 @@ public abstract class ComputerListener implements ExtensionPoint {
      * This enables you to do some work on all the agents
      * as they get connected.
      *
+     * Any thrown {@link Exception}s will be recorded to the listener.
+     * No {@link Exception} will put the computer offline, however
+     * any {@link Error} will put the computer offline
+     * since they indicate unrecoverable conditions.
+     *
      * <p>
      * Starting Hudson 1.312, this method is also invoked for the master, not just for agents.
      *
@@ -176,7 +181,7 @@ public abstract class ComputerListener implements ExtensionPoint {
      *
      * @since 1.571
      */
-    public void onOffline(@Nonnull Computer c, @CheckForNull OfflineCause cause) {
+    public void onOffline(@NonNull Computer c, @CheckForNull OfflineCause cause) {
         onOffline(c);
     }
 

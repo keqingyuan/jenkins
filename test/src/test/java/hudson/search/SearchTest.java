@@ -391,18 +391,18 @@ public class SearchTest {
         j.jenkins.addView(new ListView("foo", j.jenkins));
 
         // SYSTEM can see all the views
-        assertEquals("two views exist", 2, Jenkins.getInstance().getViews().size());
+        assertEquals("two views exist", 2, Jenkins.get().getViews().size());
         List<SearchItem> results = new ArrayList<>();
         j.jenkins.getSearchIndex().suggest("foo", results);
         assertEquals("nonempty results list", 1, results.size());
 
 
         // Alice can't
-        assertFalse("no permission", j.jenkins.getView("foo").hasPermission(User.get("alice").impersonate(), View.READ));
-        ACL.impersonate(User.get("alice").impersonate(), new Runnable() {
+        assertFalse("no permission", j.jenkins.getView("foo").hasPermission2(User.get("alice").impersonate2(), View.READ));
+        ACL.impersonate2(User.get("alice").impersonate2(), new Runnable() {
             @Override
             public void run() {
-                assertEquals("no visible views", 0, Jenkins.getInstance().getViews().size());
+                assertEquals("no visible views", 0, Jenkins.get().getViews().size());
 
                 List<SearchItem> results = new ArrayList<>();
                 j.jenkins.getSearchIndex().suggest("foo", results);

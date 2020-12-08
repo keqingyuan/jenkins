@@ -4,7 +4,7 @@ import hudson.WebAppMain;
 import jenkins.util.groovy.GroovyHookScript;
 import org.kohsuke.stapler.WebApp;
 
-import javax.annotation.CheckForNull;
+import edu.umd.cs.findbugs.annotations.CheckForNull;
 import javax.servlet.ServletContext;
 import java.io.BufferedReader;
 import java.io.File;
@@ -55,7 +55,7 @@ public abstract class BootFailure extends ErrorObject {
      * Parses the boot attempt file carefully so as not to cause the entire hook script to fail to execute.
      */
     protected List<Date> loadAttempts(File home) {
-        List<Date> dates = new ArrayList<Date>();
+        List<Date> dates = new ArrayList<>();
         if (home!=null) {
             File f = getBootFailureFile(home);
             try {

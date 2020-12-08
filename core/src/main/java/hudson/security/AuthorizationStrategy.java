@@ -29,18 +29,16 @@ import hudson.ExtensionPoint;
 import hudson.model.*;
 import hudson.slaves.Cloud;
 import hudson.util.DescriptorList;
-
-import java.io.Serializable;
-import java.util.Collection;
-import java.util.Collections;
-import javax.annotation.Nonnull;
-
 import jenkins.model.Jenkins;
 import jenkins.security.stapler.StaplerAccessibleType;
 import net.sf.json.JSONObject;
-
 import org.jenkinsci.Symbol;
 import org.kohsuke.stapler.StaplerRequest;
+
+import edu.umd.cs.findbugs.annotations.NonNull;
+import java.io.Serializable;
+import java.util.Collection;
+import java.util.Collections;
 
 /**
  * Controls authorization throughout Hudson.
@@ -70,18 +68,18 @@ public abstract class AuthorizationStrategy extends AbstractDescribableImpl<Auth
      * <p>
      * IOW, this ACL will have the ultimate say on the access control.
      */
-    public abstract @Nonnull ACL getRootACL();
+    public abstract @NonNull ACL getRootACL();
 
     /**
      * @deprecated since 1.277
      *      Override {@link #getACL(Job)} instead.
      */
     @Deprecated
-    public @Nonnull ACL getACL(@Nonnull AbstractProject<?,?> project) {
+    public @NonNull ACL getACL(@NonNull AbstractProject<?,?> project) {
     	return getACL((Job)project);
     }
 
-    public @Nonnull ACL getACL(@Nonnull Job<?,?> project) {
+    public @NonNull ACL getACL(@NonNull Job<?,?> project) {
     	return getRootACL();
     }
 
@@ -95,13 +93,13 @@ public abstract class AuthorizationStrategy extends AbstractDescribableImpl<Auth
      *
      * @since 1.220
      */
-    public @Nonnull ACL getACL(final @Nonnull View item) {
-        return ACL.lambda((a, permission) -> {
+    public @NonNull ACL getACL(final @NonNull View item) {
+        return ACL.lambda2((a, permission) -> {
                 ACL base = item.getOwner().getACL();
 
-                boolean hasPermission = base.hasPermission(a, permission);
+                boolean hasPermission = base.hasPermission2(a, permission);
                 if (!hasPermission && permission == View.READ) {
-                    return base.hasPermission(a,View.CONFIGURE) || !item.getItems().isEmpty();
+                    return base.hasPermission2(a,View.CONFIGURE) || !item.getItems().isEmpty();
                 }
 
                 return hasPermission;
@@ -117,7 +115,7 @@ public abstract class AuthorizationStrategy extends AbstractDescribableImpl<Auth
      *
      * @since 1.220
      */
-    public @Nonnull ACL getACL(@Nonnull AbstractItem item) {
+    public @NonNull ACL getACL(@NonNull AbstractItem item) {
         return getRootACL();
     }
 
@@ -130,7 +128,7 @@ public abstract class AuthorizationStrategy extends AbstractDescribableImpl<Auth
      *
      * @since 1.221
      */
-    public @Nonnull ACL getACL(@Nonnull User user) {
+    public @NonNull ACL getACL(@NonNull User user) {
         return getRootACL();
     }
 
@@ -143,7 +141,7 @@ public abstract class AuthorizationStrategy extends AbstractDescribableImpl<Auth
      *
      * @since 1.220
      */
-    public @Nonnull ACL getACL(@Nonnull Computer computer) {
+    public @NonNull ACL getACL(@NonNull Computer computer) {
         return getACL(computer.getNode());
     }
 
@@ -156,11 +154,11 @@ public abstract class AuthorizationStrategy extends AbstractDescribableImpl<Auth
      *
      * @since 1.252
      */
-    public @Nonnull ACL getACL(@Nonnull Cloud cloud) {
+    public @NonNull ACL getACL(@NonNull Cloud cloud) {
         return getRootACL();
     }
 
-    public @Nonnull ACL getACL(@Nonnull Node node) {
+    public @NonNull ACL getACL(@NonNull Node node) {
         return getRootACL();
     }
 
@@ -178,13 +176,13 @@ public abstract class AuthorizationStrategy extends AbstractDescribableImpl<Auth
      * @return
      *      never null.
      */
-    public abstract @Nonnull Collection<String> getGroups();
+    public abstract @NonNull Collection<String> getGroups();
 
     /**
      * Returns all the registered {@link AuthorizationStrategy} descriptors.
      */
-    public static @Nonnull DescriptorExtensionList<AuthorizationStrategy,Descriptor<AuthorizationStrategy>> all() {
-        return Jenkins.getInstance().<AuthorizationStrategy,Descriptor<AuthorizationStrategy>>getDescriptorList(AuthorizationStrategy.class);
+    public static @NonNull DescriptorExtensionList<AuthorizationStrategy,Descriptor<AuthorizationStrategy>> all() {
+        return Jenkins.get().getDescriptorList(AuthorizationStrategy.class);
     }
 
     /**
@@ -194,7 +192,7 @@ public abstract class AuthorizationStrategy extends AbstractDescribableImpl<Auth
      *      Use {@link #all()} for read access, and {@link Extension} for registration.
      */
     @Deprecated
-    public static final DescriptorList<AuthorizationStrategy> LIST = new DescriptorList<AuthorizationStrategy>(AuthorizationStrategy.class);
+    public static final DescriptorList<AuthorizationStrategy> LIST = new DescriptorList<>(AuthorizationStrategy.class);
     
     /**
      * {@link AuthorizationStrategy} that implements the semantics
@@ -214,16 +212,16 @@ public abstract class AuthorizationStrategy extends AbstractDescribableImpl<Auth
         }
 
         @Override
-        public @Nonnull ACL getRootACL() {
+        public @NonNull ACL getRootACL() {
             return UNSECURED_ACL;
         }
 
         @Override
-        public @Nonnull Collection<String> getGroups() {
+        public @NonNull Collection<String> getGroups() {
             return Collections.emptySet();
         }
 
-        private static final ACL UNSECURED_ACL = ACL.lambda((a, p) -> true);
+        private static final ACL UNSECURED_ACL = ACL.lambda2((a, p) -> true);
 
         @Extension @Symbol("unsecured")
         public static final class DescriptorImpl extends Descriptor<AuthorizationStrategy> {
@@ -233,7 +231,7 @@ public abstract class AuthorizationStrategy extends AbstractDescribableImpl<Auth
             }
 
             @Override
-            public @Nonnull AuthorizationStrategy newInstance(StaplerRequest req, JSONObject formData) throws FormException {
+            public @NonNull AuthorizationStrategy newInstance(StaplerRequest req, JSONObject formData) throws FormException {
                 return UNSECURED;
             }
         }

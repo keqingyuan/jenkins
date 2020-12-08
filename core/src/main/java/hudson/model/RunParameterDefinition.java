@@ -23,6 +23,7 @@
  */
 package hudson.model;
 
+import java.util.Objects;
 import java.util.logging.Logger;
 import jenkins.model.Jenkins;
 import net.sf.json.JSONObject;
@@ -105,7 +106,7 @@ public class RunParameterDefinition extends SimpleParameterDefinition {
     }
 
     public Job getProject() {
-        return Jenkins.getInstance().getItemByFullName(projectName, Job.class);
+        return Jenkins.get().getItemByFullName(projectName, Job.class);
     }
 
     /**
@@ -154,7 +155,7 @@ public class RunParameterDefinition extends SimpleParameterDefinition {
         }
         
         public AutoCompletionCandidates doAutoCompleteProjectName(@QueryParameter String value) {
-            return AutoCompletionCandidates.ofJobNames(Job.class, value, null, Jenkins.getInstance());
+            return AutoCompletionCandidates.ofJobNames(Job.class, value, null, Jenkins.get());
         }
 
     }
@@ -165,7 +166,7 @@ public class RunParameterDefinition extends SimpleParameterDefinition {
             return createValue(runId);
         }
 
-        Run<?,?> lastBuild = null;
+        Run<?,?> lastBuild;
         Job project = getProject();
 
         if (project == null) {
@@ -204,6 +205,36 @@ public class RunParameterDefinition extends SimpleParameterDefinition {
 
     public RunParameterValue createValue(String value) {
         return new RunParameterValue(getName(), value, getDescription());
+    }
+
+    @Override
+    public int hashCode() {
+        if (RunParameterDefinition.class != getClass()) {
+            return super.hashCode();
+        }
+        return Objects.hash(getName(), getDescription(), projectName, runId, filter);
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (RunParameterDefinition.class != getClass())
+            return super.equals(obj);
+        if (this == obj)
+            return true;
+        if (obj == null)
+            return false;
+        if (getClass() != obj.getClass())
+            return false;
+        RunParameterDefinition other = (RunParameterDefinition) obj;
+        if (!Objects.equals(getName(), other.getName()))
+            return false;
+        if (!Objects.equals(getDescription(), other.getDescription()))
+            return false;
+        if (!Objects.equals(projectName, other.projectName))
+            return false;
+        if (!Objects.equals(runId, other.runId))
+            return false;
+        return Objects.equals(filter, other.filter);
     }
 
     private static final Logger LOGGER = Logger.getLogger(RunParameterDefinition.class.getName());

@@ -4,8 +4,6 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import jenkins.util.SystemProperties;
-import org.kohsuke.accmod.Restricted;
-import org.kohsuke.accmod.restrictions.NoExternalUse;
 import org.w3c.dom.Document;
 import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
@@ -20,7 +18,7 @@ import java.nio.charset.Charset;
 import java.util.logging.Level;
 import java.util.logging.LogManager;
 import java.util.logging.Logger;
-import javax.annotation.Nonnull;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -32,14 +30,15 @@ import javax.xml.transform.TransformerException;
 import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.sax.SAXSource;
 import javax.xml.transform.sax.SAXTransformerFactory;
+import javax.xml.transform.stream.StreamSource;
 import javax.xml.xpath.XPath;
 import javax.xml.xpath.XPathExpressionException;
 import javax.xml.xpath.XPathFactory;
 
 /**
- * Utilities useful when working with various XML types.
+  * Utilities useful when working with various XML types.
+  * @since 1.596.1 and 1.600, unrestricted since 2.179
  */
-@Restricted(NoExternalUse.class)
 public final class XMLUtils {
 
     private final static Logger LOGGER = LogManager.getLogManager().getLogger(XMLUtils.class.getName());
@@ -51,12 +50,12 @@ public final class XMLUtils {
     /**
      * Transform the source to the output in a manner that is protected against XXE attacks.
      * If the transform can not be completed safely then an IOException is thrown.
-     * Note - to turn off safety set the system property <code>disableXXEPrevention</code> to <code>true</code>.
-     * @param source The XML input to transform. - This should be a <code>StreamSource</code> or a
-     *               <code>SAXSource</code> in order to be able to prevent XXE attacks.
-     * @param out The Result of transforming the <code>source</code>.
+     * Note - to turn off safety set the system property {@code disableXXEPrevention} to {@code true}.
+     * @param source The XML input to transform. - This should be a {@link StreamSource} or a
+     *               {@link SAXSource} in order to be able to prevent XXE attacks.
+     * @param out The Result of transforming the {@code source}.
      */
-    public static void safeTransform(@Nonnull Source source, @Nonnull Result out) throws TransformerException,
+    public static void safeTransform(@NonNull Source source, @NonNull Result out) throws TransformerException,
             SAXException {
 
         InputSource src = SAXSource.sourceToInputSource(source);
@@ -109,9 +108,33 @@ public final class XMLUtils {
      * @return The XML {@link Document}.
      * @throws SAXException Error parsing the XML stream data e.g. badly formed XML.
      * @throws IOException Error reading from the steam.
+     * @since TODO
+     */
+    public static @NonNull Document parse(@NonNull InputStream stream) throws SAXException, IOException {
+        DocumentBuilder docBuilder;
+
+        try {
+            docBuilder = newDocumentBuilderFactory().newDocumentBuilder();
+            docBuilder.setEntityResolver(RestrictiveEntityResolver.INSTANCE);
+        } catch (ParserConfigurationException e) {
+            throw new IllegalStateException("Unexpected error creating DocumentBuilder.", e);
+        }
+
+        return docBuilder.parse(new InputSource(stream));
+    }
+
+    /**
+     * Parse the supplied XML stream data to a {@link Document}.
+     * <p>
+     * This function does not close the stream.
+     * <p>In most cases you should prefer {@link #parse(InputStream)}.
+     * @param stream The XML stream.
+     * @return The XML {@link Document}.
+     * @throws SAXException Error parsing the XML stream data e.g. badly formed XML.
+     * @throws IOException Error reading from the steam.
      * @since 2.0
      */
-    public static @Nonnull Document parse(@Nonnull Reader stream) throws SAXException, IOException {
+    public static @NonNull Document parse(@NonNull Reader stream) throws SAXException, IOException {
         DocumentBuilder docBuilder;
 
         try {
@@ -127,13 +150,29 @@ public final class XMLUtils {
     /**
      * Parse the supplied XML file data to a {@link Document}.
      * @param file The file to parse.
-     * @param encoding The encoding of the XML in the file.
      * @return The parsed document.
      * @throws SAXException Error parsing the XML file data e.g. badly formed XML.
      * @throws IOException Error reading from the file.
+     * @since TODO
+     */
+    public static @NonNull Document parse(@NonNull File file) throws SAXException, IOException {
+        if (!file.exists() || !file.isFile()) {
+            throw new IllegalArgumentException(String.format("File %s does not exist or is not a 'normal' file.", file.getAbsolutePath()));
+        }
+
+        try (InputStream fileInputStream = Files.newInputStream(file.toPath())) {
+            return parse(fileInputStream);
+        } catch (InvalidPathException e) {
+            throw new IOException(e);
+        }
+    }
+
+    /**
+     * @deprecated use {@link #parse(File)}
      * @since 2.0
      */
-    public static @Nonnull Document parse(@Nonnull File file, @Nonnull String encoding) throws SAXException, IOException {
+    @Deprecated
+    public static @NonNull Document parse(@NonNull File file, @NonNull String encoding) throws SAXException, IOException {
         if (!file.exists() || !file.isFile()) {
             throw new IllegalArgumentException(String.format("File %s does not exist or is not a 'normal' file.", file.getAbsolutePath()));
         }
@@ -160,7 +199,7 @@ public final class XMLUtils {
      * @throws XPathExpressionException Invalid XPath expression.
      * @since 2.0
      */
-    public static @Nonnull String getValue(@Nonnull String xpath, @Nonnull File file) throws IOException, SAXException, XPathExpressionException {
+    public static @NonNull String getValue(@NonNull String xpath, @NonNull File file) throws IOException, SAXException, XPathExpressionException {
         return getValue(xpath, file, Charset.defaultCharset().toString());
     }
 
@@ -176,7 +215,7 @@ public final class XMLUtils {
      * @throws XPathExpressionException Invalid XPath expression.
      * @since 2.0
      */
-    public static @Nonnull String getValue(@Nonnull String xpath, @Nonnull File file, @Nonnull String fileDataEncoding) throws IOException, SAXException, XPathExpressionException {
+    public static @NonNull String getValue(@NonNull String xpath, @NonNull File file, @NonNull String fileDataEncoding) throws IOException, SAXException, XPathExpressionException {
         Document document = parse(file, fileDataEncoding);
         return getValue(xpath, document);
     }
@@ -198,7 +237,7 @@ public final class XMLUtils {
     /**
      * potentially unsafe XML transformation.
      * @param source The XML input to transform.
-     * @param out The Result of transforming the <code>source</code>.
+     * @param out The Result of transforming the {@code source}.
      */
     private static void _transform(Source source, Result out) throws TransformerException {
         TransformerFactory factory = TransformerFactory.newInstance();

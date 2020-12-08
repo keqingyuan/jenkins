@@ -24,18 +24,18 @@
 package jenkins.security;
 
 import hudson.security.HudsonPrivateSecurityRealm;
-import org.acegisecurity.userdetails.UserDetails;
-import org.acegisecurity.userdetails.UsernameNotFoundException;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.jvnet.hudson.test.JenkinsRule;
-import org.springframework.dao.DataAccessException;
 
 import java.io.IOException;
-import java.util.concurrent.ExecutionException;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.fail;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 
 /**
  * Tests for {@link UserDetailsCache}.

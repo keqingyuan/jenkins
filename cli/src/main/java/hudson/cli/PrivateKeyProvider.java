@@ -52,7 +52,7 @@ import org.apache.sshd.common.util.security.SecurityUtils;
  */
 public class PrivateKeyProvider {
 
-    private List<KeyPair> privateKeys = new ArrayList<KeyPair>();
+    private List<KeyPair> privateKeys = new ArrayList<>();
 
     /**
      * Get keys read so far.
@@ -86,10 +86,7 @@ public class PrivateKeyProvider {
 
                 readFrom(key);
                 read = true;
-            } catch (IOException e) {
-
-                LOGGER.log(FINE, "Failed to load " + key, e);
-            } catch (GeneralSecurityException e) {
+            } catch (IOException | GeneralSecurityException e) {
 
                 LOGGER.log(FINE, "Failed to load " + key, e);
             }

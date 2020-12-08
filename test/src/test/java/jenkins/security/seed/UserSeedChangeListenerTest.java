@@ -26,27 +26,23 @@ package jenkins.security.seed;
 import com.gargoylesoftware.htmlunit.HttpMethod;
 import com.gargoylesoftware.htmlunit.WebRequest;
 import hudson.model.User;
-import org.hamcrest.CoreMatchers;
-import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
 import org.jvnet.hudson.test.JenkinsRule;
 import org.jvnet.hudson.test.TestExtension;
 
-import javax.annotation.Nonnull;
+import edu.umd.cs.findbugs.annotations.NonNull;
 
 import java.net.URL;
-import java.util.Random;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertThat;
+import static org.hamcrest.MatcherAssert.assertThat;
 
 public class UserSeedChangeListenerTest {
 
     @Rule
     public JenkinsRule j = new JenkinsRule();
-    {j.timeout = 0;}
 
     @Test
     public void onProgrammaticUserSeedChange_listenerTriggered() throws Exception {
@@ -92,7 +88,7 @@ public class UserSeedChangeListenerTest {
         boolean userWasNull;
         
         @Override 
-        public void onUserSeedRenewed(@Nonnull User user) {
+        public void onUserSeedRenewed(@NonNull User user) {
             if (user == null) {
                 userWasNull = true; 
             }

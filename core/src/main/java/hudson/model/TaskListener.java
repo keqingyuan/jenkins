@@ -33,11 +33,11 @@ import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.PrintStream;
 import java.io.PrintWriter;
-import java.io.Serializable;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Formatter;
-import javax.annotation.Nonnull;
+import edu.umd.cs.findbugs.annotations.NonNull;
+import org.jenkinsci.remoting.SerializableOnlyOverRemoting;
 import org.kohsuke.accmod.Restricted;
 import org.kohsuke.accmod.restrictions.NoExternalUse;
 import org.kohsuke.accmod.restrictions.ProtectedExternally;
@@ -66,11 +66,11 @@ import org.kohsuke.accmod.restrictions.ProtectedExternally;
  *
  * @author Kohsuke Kawaguchi
  */
-public interface TaskListener extends Serializable {
+public interface TaskListener extends SerializableOnlyOverRemoting {
     /**
      * This writer will receive the output of the build
      */
-    @Nonnull
+    @NonNull
     PrintStream getLogger();
 
     /**
@@ -79,7 +79,7 @@ public interface TaskListener extends Serializable {
      * @return by default, UTF-8
      */
     @Restricted(ProtectedExternally.class)
-    @Nonnull
+    @NonNull
     default Charset getCharset() {
         return StandardCharsets.UTF_8;
     }
@@ -90,7 +90,6 @@ public interface TaskListener extends Serializable {
         out.print(prefix);
         out.println(msg);
 
-        // annotate(new HudsonExceptionNote()) if and when this is made to do something
         Charset charset = getCharset();
         return new PrintWriter(charset != null ? new OutputStreamWriter(out, charset) : new OutputStreamWriter(out), true);
     }
@@ -122,7 +121,7 @@ public interface TaskListener extends Serializable {
      * @return
      *      A writer to receive details of the error.
      */
-    @Nonnull
+    @NonNull
     default PrintWriter error(String msg) {
         return _error("ERROR: ", msg);
     }
@@ -130,7 +129,7 @@ public interface TaskListener extends Serializable {
     /**
      * {@link Formatter#format(String, Object[])} version of {@link #error(String)}.
      */
-    @Nonnull
+    @NonNull
     default PrintWriter error(String format, Object... args) {
         return error(String.format(format,args));
     }
@@ -141,7 +140,7 @@ public interface TaskListener extends Serializable {
      * @return
      *      A writer to receive details of the error.
      */
-    @Nonnull
+    @NonNull
     default PrintWriter fatalError(String msg) {
         return _error("FATAL: ", msg);
     }
@@ -149,7 +148,7 @@ public interface TaskListener extends Serializable {
     /**
      * {@link Formatter#format(String, Object[])} version of {@link #fatalError(String)}.
      */
-    @Nonnull
+    @NonNull
     default PrintWriter fatalError(String format, Object... args) {
         return fatalError(String.format(format, args));
     }

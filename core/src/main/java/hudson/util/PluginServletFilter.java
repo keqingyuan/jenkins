@@ -28,7 +28,7 @@ import hudson.security.SecurityRealm;
 import java.util.ArrayList;
 import jenkins.model.Jenkins;
 
-import javax.annotation.CheckForNull;
+import edu.umd.cs.findbugs.annotations.CheckForNull;
 import javax.servlet.Filter;
 import javax.servlet.FilterChain;
 import javax.servlet.FilterConfig;
@@ -59,17 +59,17 @@ import org.kohsuke.accmod.restrictions.NoExternalUse;
  *
  * @see SecurityRealm
  */
-public class PluginServletFilter implements Filter, ExtensionPoint {
-    private final List<Filter> list = new CopyOnWriteArrayList<Filter>();
+public final class PluginServletFilter implements Filter, ExtensionPoint {
+    private final List<Filter> list = new CopyOnWriteArrayList<>();
 
     private /*almost final*/ FilterConfig config;
 
     /**
-     * For backward compatibility with plugins that might register filters before Jenkins.getInstance()
+     * For backward compatibility with plugins that might register filters before Jenkins.get()
      * starts functioning, when we are not sure which Jenkins instance a filter belongs to, put it here,
      * and let the first Jenkins instance take over.
      */
-    private static final List<Filter> LEGACY = new Vector<Filter>();
+    private static final List<Filter> LEGACY = new Vector<>();
 
     private static final String KEY = PluginServletFilter.class.getName();
 
