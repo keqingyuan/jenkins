@@ -24,38 +24,75 @@
 
 package jenkins.management;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.Extension;
 import hudson.model.ManagementLink;
+import hudson.security.Permission;
+import jakarta.servlet.ServletException;
+import java.io.IOException;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import jenkins.model.Jenkins;
+import net.sf.json.JSONObject;
 import org.jenkinsci.Symbol;
+import org.kohsuke.stapler.StaplerRequest2;
+import org.kohsuke.stapler.StaplerResponse2;
+import org.kohsuke.stapler.verb.POST;
 
-/**
- * @author <a href="mailto:nicolas.deloof@gmail.com">Nicolas De Loof</a>
- */
-@Extension(ordinal = Integer.MIN_VALUE) @Symbol("shutDown")
+@Extension(ordinal = Integer.MIN_VALUE)
+@Symbol("prepareQuietDown")
 public class ShutdownLink extends ManagementLink {
+
+    private static final Logger LOGGER = Logger.getLogger(ShutdownLink.class.getName());
 
     @Override
     public String getIconFileName() {
-        return "system-log-out.png";
+        return "symbol-power";
     }
 
+    @Override
     public String getDisplayName() {
-        return Jenkins.getInstance().isQuietingDown() ? Messages.ShutdownLink_DisplayName_cancel() : Messages.ShutdownLink_DisplayName_prepare();
+        return Jenkins.get().isQuietingDown() ? Messages.ShutdownLink_DisplayName_update() : Messages.ShutdownLink_DisplayName_prepare();
     }
 
     @Override
     public String getDescription() {
-        return Jenkins.getInstance().isQuietingDown() ? "" : Messages.ShutdownLink_Description();
+        return Jenkins.get().isQuietingDown() ? Messages.ShutdownLink_ShuttingDownInProgressDescription() : Messages.ShutdownLink_Description();
     }
 
     @Override
     public String getUrlName() {
-        return Jenkins.getInstance().isQuietingDown() ? "cancelQuietDown" : "quietDown";
+        return "prepareShutdown";
     }
 
+    @POST
+    public synchronized void doPrepare(StaplerRequest2 req, StaplerResponse2 rsp) throws IOException, ServletException, InterruptedException {
+        Jenkins.get().checkPermission(Jenkins.MANAGE);
+
+        JSONObject submittedForm = req.getSubmittedForm();
+        String inputReason = submittedForm.getString("shutdownReason");
+        String shutdownReason = inputReason.isEmpty() ? null : inputReason;
+        LOGGER.log(Level.FINE, "Shutdown requested by user {0}", Jenkins.getAuthentication().getName());
+        Jenkins.get().doQuietDown(false, 0, shutdownReason).generateResponse(req, rsp, null);
+    }
+
+    @POST
+    public synchronized void doCancel(StaplerRequest2 req, StaplerResponse2 rsp) throws IOException, ServletException {
+        Jenkins.get().checkPermission(Jenkins.MANAGE);
+
+        LOGGER.log(Level.FINE, "Shutdown cancel requested by user {0}", Jenkins.getAuthentication().getName());
+        Jenkins.get().doCancelQuietDown().generateResponse(req, rsp, null);
+    }
+
+    @NonNull
     @Override
-    public boolean getRequiresPOST() {
-        return true;
+    public Permission getRequiredPermission() {
+        return Jenkins.MANAGE;
+    }
+
+    @NonNull
+    @Override
+    public Category getCategory() {
+        return Category.TOOLS;
     }
 }

@@ -1,18 +1,18 @@
 /*
  * The MIT License
- * 
+ *
  * Copyright (c) 2004-2009, Sun Microsystems, Inc., Kohsuke Kawaguchi, Matthew R. Harrah
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in
  * all copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -21,75 +21,90 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package hudson.security;
 
-import java.util.Properties;
-import java.util.logging.Logger;
-import java.util.logging.Level;
-import java.io.IOException;
-
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-import javax.servlet.http.HttpSession;
-
-import hudson.Util;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import hudson.model.User;
+import hudson.security.csrf.CrumbIssuer;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
+import java.io.IOException;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import jenkins.model.Jenkins;
 import jenkins.security.SecurityListener;
 import jenkins.security.seed.UserSeedProperty;
-import org.acegisecurity.Authentication;
-import org.acegisecurity.AuthenticationException;
-import org.acegisecurity.ui.webapp.AuthenticationProcessingFilter;
+import jenkins.util.SystemProperties;
+import org.kohsuke.accmod.Restricted;
+import org.kohsuke.accmod.restrictions.NoExternalUse;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.authentication.InsufficientAuthenticationException;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 
 /**
- * {@link AuthenticationProcessingFilter} with a change for Jenkins so that
+ * Login filter with a change for Jenkins so that
  * we can pick up the hidden "from" form field defined in {@code login.jelly}
  * to send the user back to where he came from, after a successful authentication.
- * 
+ *
  * @author Kohsuke Kawaguchi
  */
-public class AuthenticationProcessingFilter2 extends AuthenticationProcessingFilter {
-    @Override
-    protected String determineTargetUrl(HttpServletRequest request) {
-        String targetUrl = request.getParameter("from");
-        request.getSession().setAttribute("from", targetUrl);
-
-        if (targetUrl == null)
-            return getDefaultTargetUrl();
-
-        if (!Util.isSafeToRedirectTo(targetUrl))
-            return "."; // avoid open redirect
-
-        // URL returned from determineTargetUrl() is resolved against the context path,
-        // whereas the "from" URL is resolved against the top of the website, so adjust this.
-        if(targetUrl.startsWith(request.getContextPath()))
-            return targetUrl.substring(request.getContextPath().length());
-
-        // not sure when this happens, but apparently this happens in some case.
-        // see #1274
-        return targetUrl;
-    }
+@Restricted(NoExternalUse.class)
+public final class AuthenticationProcessingFilter2 extends UsernamePasswordAuthenticationFilter {
 
     /**
-     * @see org.acegisecurity.ui.AbstractProcessingFilter#determineFailureUrl(javax.servlet.http.HttpServletRequest, org.acegisecurity.AuthenticationException)
+     * Escape hatch to disable CSRF protection for login requests.
      */
-    @Override
-    protected String determineFailureUrl(HttpServletRequest request, AuthenticationException failed) {
-        Properties excMap = getExceptionMappings();
-		String failedClassName = failed.getClass().getName();
-		String whereFrom = request.getParameter("from");
-		request.getSession().setAttribute("from", whereFrom);
-		return excMap.getProperty(failedClassName, getAuthenticationFailureUrl());
+    @Restricted(NoExternalUse.class)
+    @SuppressFBWarnings(value = "MS_SHOULD_BE_FINAL", justification = "for script console")
+    public static /* non-final */ boolean SKIP_CSRF_CHECK = SystemProperties.getBoolean(AuthenticationProcessingFilter2.class.getName() + ".skipCSRFCheck");
+
+    @SuppressFBWarnings(value = "HARD_CODE_PASSWORD", justification = "This is a password parameter, not a password")
+    public AuthenticationProcessingFilter2(String authenticationGatewayUrl) {
+        setRequiresAuthenticationRequestMatcher(PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/" + authenticationGatewayUrl));
+        // Jenkins/login.jelly & SetupWizard/authenticate-security-token.jelly
+        setUsernameParameter("j_username");
+        setPasswordParameter("j_password");
     }
 
     @Override
-    protected void onSuccessfulAuthentication(HttpServletRequest request, HttpServletResponse response, Authentication authResult) throws IOException {
-        super.onSuccessfulAuthentication(request,response,authResult);
-        // make sure we have a session to store this successful authentication, given that we no longer
-        // let HttpSessionContextIntegrationFilter2 to create sessions.
-        // HttpSessionContextIntegrationFilter stores the updated SecurityContext object into this session later
-        // (either when a redirect is issued, via its HttpResponseWrapper, or when the execution returns to its
-        // doFilter method.
-        request.getSession().invalidate();
+    public Authentication attemptAuthentication(HttpServletRequest request, HttpServletResponse response) throws AuthenticationException {
+        if (!SKIP_CSRF_CHECK) {
+            Jenkins jenkins = Jenkins.get();
+            CrumbIssuer crumbIssuer = jenkins.getCrumbIssuer();
+            if (crumbIssuer != null) {
+                String crumbField = crumbIssuer.getCrumbRequestField();
+                String crumbSalt = crumbIssuer.getDescriptor().getCrumbSalt();
+
+                String crumb = request.getParameter(crumbField);
+                if (crumb == null) {
+                    crumb = request.getHeader(crumbField);
+                }
+
+                if (crumb == null || !crumbIssuer.validateCrumb(request, crumbSalt, crumb)) {
+                    LOGGER.log(Level.FINE, "No valid crumb was included in authentication request from {0}", request.getRemoteAddr());
+                    throw new InsufficientAuthenticationException("No valid crumb was included in the request");
+                }
+            }
+        }
+
+        return super.attemptAuthentication(request, response);
+    }
+
+    @Override
+    protected void successfulAuthentication(HttpServletRequest request, HttpServletResponse response, FilterChain chain, Authentication authResult) throws IOException, ServletException {
+        if (SystemProperties.getInteger(SecurityRealm.class.getName() + ".sessionFixationProtectionMode", 1) == 2) {
+            // While use of SessionFixationProtectionStrategy is the canonical Spring Security approach, it may not be compatible with some security realms, so offer this alternative
+            request.getSession().invalidate();
+            request.getSession(true);
+        }
+        super.successfulAuthentication(request, response, chain, authResult);
         HttpSession newSession = request.getSession();
 
         if (!UserSeedProperty.DISABLE_USER_SEED) {
@@ -100,7 +115,7 @@ public class AuthenticationProcessingFilter2 extends AuthenticationProcessingFil
             newSession.setAttribute(UserSeedProperty.USER_SESSION_SEED, sessionSeed);
         }
 
-        // as the request comes from Acegi redirect, that's not a Stapler one
+        // as the request comes from Spring Security redirect, that's not a Stapler one
         // thus it's not possible to retrieve it in the SecurityListener in that case
         // for that reason we need to keep the above code that apply quite the same logic as UserSeedSecurityListener
         SecurityListener.fireLoggedIn(authResult.getName());
@@ -108,18 +123,17 @@ public class AuthenticationProcessingFilter2 extends AuthenticationProcessingFil
 
     /**
      * Leave the information about login failure.
-     *
-     * <p>
-     * Otherwise it seems like Acegi doesn't really leave the detail of the failure anywhere.
      */
     @Override
-    protected void onUnsuccessfulAuthentication(HttpServletRequest request, HttpServletResponse response, AuthenticationException failed) throws IOException {
-        super.onUnsuccessfulAuthentication(request, response, failed);
+    protected void unsuccessfulAuthentication(HttpServletRequest request, HttpServletResponse response, AuthenticationException failed) throws IOException, ServletException {
+        super.unsuccessfulAuthentication(request, response, failed);
         LOGGER.log(Level.FINE, "Login attempt failed", failed);
+        /* TODO this information appears to have been deliberately removed from Spring Security:
         Authentication auth = failed.getAuthentication();
         if (auth != null) {
             SecurityListener.fireFailedToLogIn(auth.getName());
         }
+        */
     }
 
     private static final Logger LOGGER = Logger.getLogger(AuthenticationProcessingFilter2.class.getName());

@@ -21,18 +21,25 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package jenkins.security.seed;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import hudson.BulkChange;
 import hudson.Extension;
+import hudson.Util;
 import hudson.model.User;
 import hudson.model.UserProperty;
 import hudson.model.UserPropertyDescriptor;
+import hudson.model.userproperty.UserPropertyCategory;
 import hudson.util.HttpResponses;
+import java.io.IOException;
+import java.security.SecureRandom;
+import java.util.Objects;
 import jenkins.model.Jenkins;
 import jenkins.security.LastGrantedAuthoritiesProperty;
 import jenkins.util.SystemProperties;
-import org.apache.commons.codec.binary.Hex;
 import org.jenkinsci.Symbol;
 import org.kohsuke.accmod.Restricted;
 import org.kohsuke.accmod.restrictions.DoNotUse;
@@ -41,13 +48,8 @@ import org.kohsuke.stapler.AncestorInPath;
 import org.kohsuke.stapler.HttpResponse;
 import org.kohsuke.stapler.interceptor.RequirePOST;
 
-import javax.annotation.Nonnull;
-import java.io.IOException;
-import java.security.SecureRandom;
-import java.util.Objects;
-
 /**
- * The seed stored in this property is used to have a revoke feature on the session 
+ * The seed stored in this property is used to have a revoke feature on the session
  * without having to hack the session management that depends on the application server used to run the instance.
  *
  * The seed is added to the session when a user just logged in and then for every request,
@@ -58,20 +60,20 @@ import java.util.Objects;
  * @see hudson.security.AuthenticationProcessingFilter2 for the addition of seed inside the session
  * @see hudson.security.HttpSessionContextIntegrationFilter2 for the seed check from the session before using it
  */
-//TODO remove restriction on the weekly after the security fix
-@Restricted(NoExternalUse.class)
 public class UserSeedProperty extends UserProperty {
     /**
-     * Escape hatch for User seed based revocation feature. 
+     * Escape hatch for User seed based revocation feature.
      * If we disable the seed, we can still use it to write / store information but not verifying the data using it.
      */
     @Restricted(NoExternalUse.class)
+    @SuppressFBWarnings(value = "MS_SHOULD_BE_FINAL", justification = "for script console")
     public static /* Script Console modifiable */ boolean DISABLE_USER_SEED = SystemProperties.getBoolean(UserSeedProperty.class.getName() + ".disableUserSeed");
 
     /**
      * Hide the user seed section from the UI to prevent accidental use
      */
     @Restricted(NoExternalUse.class)
+    @SuppressFBWarnings(value = "MS_SHOULD_BE_FINAL", justification = "for script console")
     public static /* Script Console modifiable */ boolean HIDE_USER_SEED_SECTION = SystemProperties.getBoolean(UserSeedProperty.class.getName() + ".hideUserSeedSection");
 
     public static final String USER_SESSION_SEED = "_JENKINS_SESSION_SEED";
@@ -85,7 +87,7 @@ public class UserSeedProperty extends UserProperty {
         this.renewSeedInternal();
     }
 
-    public @Nonnull String getSeed() {
+    public @NonNull String getSeed() {
         return seed;
     }
 
@@ -94,14 +96,14 @@ public class UserSeedProperty extends UserProperty {
 
         UserSeedChangeListener.fireUserSeedRenewed(this.user);
     }
-    
+
     private void renewSeedInternal() {
         String currentSeed = this.seed;
         String newSeed = currentSeed;
         byte[] bytes = new byte[SEED_NUM_BYTES];
         while (Objects.equals(newSeed, currentSeed)) {
             RANDOM.nextBytes(bytes);
-            newSeed = new String(Hex.encodeHex(bytes));
+            newSeed = Util.toHexString(bytes);
         }
         this.seed = newSeed;
     }
@@ -109,22 +111,24 @@ public class UserSeedProperty extends UserProperty {
     @Extension
     @Symbol("userSeed")
     public static final class DescriptorImpl extends UserPropertyDescriptor {
-        public @Nonnull String getDisplayName() {
+        @Override
+        public @NonNull String getDisplayName() {
             return Messages.UserSeedProperty_DisplayName();
         }
 
+        @Override
         public UserSeedProperty newInstance(User user) {
             return new UserSeedProperty();
         }
 
         // only for jelly
         @Restricted(DoNotUse.class)
-        public boolean isCurrentUser(@Nonnull User target) {
+        public boolean isCurrentUser(@NonNull User target) {
             return Objects.equals(User.current(), target);
         }
 
         @RequirePOST
-        public synchronized HttpResponse doRenewSessionSeed(@AncestorInPath @Nonnull User u) throws IOException {
+        public synchronized HttpResponse doRenewSessionSeed(@AncestorInPath @NonNull User u) throws IOException {
             u.checkPermission(Jenkins.ADMINISTER);
 
             if (DISABLE_USER_SEED) {
@@ -139,7 +143,7 @@ public class UserSeedProperty extends UserProperty {
                 if (lastGranted != null) {
                     lastGranted.invalidate();
                 }
-                
+
                 bc.commit();
             }
 
@@ -149,6 +153,11 @@ public class UserSeedProperty extends UserProperty {
         @Override
         public boolean isEnabled() {
             return !DISABLE_USER_SEED && !HIDE_USER_SEED_SECTION;
+        }
+
+        @Override
+        public @NonNull UserPropertyCategory getUserPropertyCategory() {
+            return UserPropertyCategory.get(UserPropertyCategory.Security.class);
         }
     }
 }

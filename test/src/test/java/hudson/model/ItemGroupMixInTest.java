@@ -24,7 +24,17 @@
 
 package hudson.model;
 
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.equalTo;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
 import hudson.Extension;
+import hudson.ExtensionList;
+import hudson.diagnosis.OldDataMonitor;
 import hudson.tasks.BuildStepDescriptor;
 import hudson.tasks.BuildStepMonitor;
 import hudson.tasks.BuildTrigger;
@@ -33,34 +43,43 @@ import hudson.tasks.BuildWrapperDescriptor;
 import hudson.tasks.Builder;
 import hudson.tasks.Publisher;
 import hudson.triggers.Trigger;
-import org.apache.commons.io.FileUtils;
-
 import java.io.ByteArrayInputStream;
-import java.io.IOException;
-
-import static org.junit.Assert.*;
-
-import org.junit.Rule;
-import org.junit.Test;
-import org.jvnet.hudson.test.Issue;
-import org.jvnet.hudson.test.JenkinsRule;
-import org.jvnet.hudson.test.MockFolder;
-import org.jvnet.hudson.test.TestExtension;
-import org.jvnet.hudson.test.recipes.LocalData;
-
 import java.io.File;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.StandardOpenOption;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
+import jenkins.model.Jenkins;
+import org.htmlunit.FailingHttpStatusCodeException;
+import org.htmlunit.HttpMethod;
+import org.htmlunit.WebRequest;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.jvnet.hudson.test.Issue;
+import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.MockAuthorizationStrategy;
+import org.jvnet.hudson.test.MockFolder;
+import org.jvnet.hudson.test.TestExtension;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
+import org.jvnet.hudson.test.recipes.LocalData;
 
-import static org.hamcrest.core.StringContains.containsString;
+@WithJenkins
+class ItemGroupMixInTest {
 
-public class ItemGroupMixInTest {
+    private JenkinsRule r;
 
-    @Rule public JenkinsRule r = new JenkinsRule();
+    @BeforeEach
+    void setUp(JenkinsRule rule) {
+        r = rule;
+    }
 
     @Issue("JENKINS-20951")
     @LocalData
-    @Test public void xmlFileReadCannotResolveClassException() throws Exception {
+    @Test
+    void xmlFileReadCannotResolveClassException() {
         MockFolder d = r.jenkins.getItemByFullName("d", MockFolder.class);
         assertNotNull(d);
         Collection<TopLevelItem> items = d.getItems();
@@ -68,61 +87,61 @@ public class ItemGroupMixInTest {
         assertEquals("valid", items.iterator().next().getName());
     }
 
-  /**
-   * This test unit makes sure that if part of the config.xml file is
-   * deleted it will still load everything else inside the folder.
-   * The test unit expects an IOException is thrown, and the one failed
-   * job fails to load.
-   */
-  @Issue("JENKINS-22811")
-  @Test
-  public void xmlFileFailsToLoad() throws Exception {
-    MockFolder folder = r.createFolder("folder");
-    assertNotNull(folder);
+    /**
+     * This test unit makes sure that if part of the config.xml file is
+     * deleted it will still load everything else inside the folder.
+     * The test unit expects an IOException is thrown, and the one failed
+     * job fails to load.
+     */
+    @Issue("JENKINS-22811")
+    @Test
+    void xmlFileFailsToLoad() throws Exception {
+        MockFolder folder = r.createFolder("folder");
+        assertNotNull(folder);
 
-    AbstractProject project = folder.createProject(FreeStyleProject.class, "job1");
-    AbstractProject project2 = folder.createProject(FreeStyleProject.class, "job2");
-    AbstractProject project3 = folder.createProject(FreeStyleProject.class, "job3");
+        AbstractProject project = folder.createProject(FreeStyleProject.class, "job1");
+        AbstractProject project2 = folder.createProject(FreeStyleProject.class, "job2");
+        AbstractProject project3 = folder.createProject(FreeStyleProject.class, "job3");
 
-    File configFile = project.getConfigFile().getFile();
+        File configFile = project.getConfigFile().getFile();
 
-    List<String> lines = FileUtils.readLines(configFile).subList(0, 5);
-    configFile.delete();
+        List<String> lines = Files.readAllLines(configFile.toPath(), StandardCharsets.UTF_8).subList(0, 5);
+        configFile.delete();
 
-    // Remove half of the config.xml file to make "invalid" or fail to load
-    FileUtils.writeByteArrayToFile(configFile, lines.toString().getBytes());
-    for (int i = lines.size() / 2; i < lines.size(); i++) {
-      FileUtils.writeStringToFile(configFile, lines.get(i), true);
+        // Remove half of the config.xml file to make "invalid" or fail to load
+        Files.writeString(configFile.toPath(), lines.toString(), StandardCharsets.UTF_8);
+        for (int i = lines.size() / 2; i < lines.size(); i++) {
+          Files.writeString(configFile.toPath(), lines.get(i), StandardCharsets.UTF_8, StandardOpenOption.APPEND);
+        }
+
+        // Reload Jenkins.
+        r.jenkins.reload();
+
+        // Folder
+        assertNotNull(r.jenkins.getItemByFullName("folder"), "Folder failed to load.");
+        assertNull(r.jenkins.getItemByFullName("folder/job1"), "Job should have failed to load.");
+        assertNotNull(r.jenkins.getItemByFullName("folder/job2"), "Other job in folder should have loaded.");
+        assertNotNull(r.jenkins.getItemByFullName("folder/job3"), "Other job in folder should have loaded.");
     }
 
-    // Reload Jenkins.
-    r.jenkins.reload();
-
-    // Folder
-    assertNotNull("Folder failed to load.", r.jenkins.getItemByFullName("folder"));
-    assertNull("Job should have failed to load.", r.jenkins.getItemByFullName("folder/job1"));
-    assertNotNull("Other job in folder should have loaded.", r.jenkins.getItemByFullName("folder/job2"));
-    assertNotNull("Other job in folder should have loaded.", r.jenkins.getItemByFullName("folder/job3"));
-  }
-
-  /**
-   * This test unit makes sure that jobs that contain bad get*Action methods will continue to
-   * load the project.
-   */
-  @LocalData
-  @Issue("JENKINS-22811")
-  @Test
-  public void xmlFileReadExceptionOnLoad() throws Exception {
-    MockFolder d = r.jenkins.getItemByFullName("d", MockFolder.class);
-    assertNotNull(d);
-    Collection<TopLevelItem> items = d.getItems();
-    assertEquals(5, items.size());
-  }
+    /**
+     * This test unit makes sure that jobs that contain bad get*Action methods will continue to
+     * load the project.
+     */
+    @LocalData
+    @Issue("JENKINS-22811")
+    @Test
+    void xmlFileReadExceptionOnLoad() {
+        MockFolder d = r.jenkins.getItemByFullName("d", MockFolder.class);
+        assertNotNull(d);
+        Collection<TopLevelItem> items = d.getItems();
+        assertEquals(5, items.size());
+    }
 
   @TestExtension
   public static class MockBuildWrapperThrowsError extends BuildWrapper {
     @Override
-    public Collection<? extends Action> getProjectActions(AbstractProject project){
+    public Collection<? extends Action> getProjectActions(AbstractProject project) {
       throw new NullPointerException();
     }
 
@@ -138,9 +157,10 @@ public class ItemGroupMixInTest {
   @TestExtension
   public static class MockBuilderThrowsError extends Builder {
     @Override
-    public Collection<? extends Action> getProjectActions(AbstractProject project){
+    public Collection<? extends Action> getProjectActions(AbstractProject project) {
       throw new NullPointerException();
     }
+
     @Extension public static final Descriptor DESCRIPTOR = new DescriptorImpl();
 
     public static class DescriptorImpl extends BuildStepDescriptor {
@@ -183,28 +203,122 @@ public class ItemGroupMixInTest {
     }
   }
 
-    @Test public void createProjectFromXMLShouldNoCreateEntities() throws IOException {
+    @Test
+    void createProjectFromXMLShouldNoCreateEntities() throws IOException {
 
-        final String xml = "<?xml version='1.0' encoding='UTF-8'?>\n" +
-                "<!DOCTYPE project[\n" +
-                "  <!ENTITY foo SYSTEM \"file:///\">\n" +
-                "]>\n" +
-                "<project>\n" +
-                "  <actions/>\n" +
-                "  <description>&foo;</description>\n" +
-                "  <keepDependencies>false</keepDependencies>\n" +
-                "  <properties/>\n" +
-                "  <scm class=\"hudson.scm.NullSCM\"/>\n" +
-                "  <canRoam>true</canRoam>\n" +
-                "  <triggers/>\n" +
-                "  <builders/>\n" +
-                "  <publishers/>\n" +
-                "  <buildWrappers/>\n" +
-                "</project>";
+        final String xml = """
+                <?xml version='1.0' encoding='UTF-8'?>
+                <!DOCTYPE project[
+                  <!ENTITY foo SYSTEM "file:///">
+                ]>
+                <project>
+                  <actions/>
+                  <description>&foo;</description>
+                  <keepDependencies>false</keepDependencies>
+                  <properties/>
+                  <scm class="hudson.scm.NullSCM"/>
+                  <canRoam>true</canRoam>
+                  <triggers/>
+                  <builders/>
+                  <publishers/>
+                  <buildWrappers/>
+                </project>""";
 
-        Item foo = r.jenkins.createProjectFromXML("foo", new ByteArrayInputStream(xml.getBytes()));
+        Item foo = r.jenkins.createProjectFromXML("foo", new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8)));
         // if no exception then JAXP is swallowing these - so there should be no entity in the description.
         assertThat(Items.getConfigFile(foo).asString(), containsString("<description/>"));
     }
 
+    @Issue("JENKINS-61956")
+    @Test
+    void copy_checkGoodName() throws IOException {
+        final String goodName = "calvin-jenkins";
+        final String badName = "calvin@jenkins";
+
+        Project goodProject = r.jenkins.createProject(FreeStyleProject.class, goodName);
+
+        Failure exception = assertThrows(Failure.class, () -> r.jenkins.copy(goodProject, badName));
+        assertEquals(exception.getMessage(), Messages.Hudson_UnsafeChar("@"));
+    }
+
+    @Issue("JENKINS-61956")
+    @Test
+    void createProject_checkGoodName() {
+        final String badName = "calvin@jenkins";
+
+        Failure exception = assertThrows(Failure.class, () -> r.jenkins.createProject(MockFolder.class, badName));
+        assertEquals(exception.getMessage(), Messages.Hudson_UnsafeChar("@"));
+    }
+
+    @Issue("JENKINS-61956")
+    @Test
+    void createProjectFromXML_checkGoodName() {
+        final String badName = "calvin@jenkins";
+
+        final String xml = """
+                <?xml version='1.0' encoding='UTF-8'?>
+                <!DOCTYPE project[
+                  <!ENTITY foo SYSTEM "file:///">
+                ]>
+                <project>
+                  <actions/>
+                  <description>&foo;</description>
+                  <keepDependencies>false</keepDependencies>
+                  <properties/>
+                  <scm class="hudson.scm.NullSCM"/>
+                  <canRoam>true</canRoam>
+                  <triggers/>
+                  <builders/>
+                  <publishers/>
+                  <buildWrappers/>
+                </project>""";
+
+        Failure exception = assertThrows(Failure.class, () -> r.jenkins.createProjectFromXML(badName, new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8))));
+        assertEquals(exception.getMessage(), Messages.Hudson_UnsafeChar("@"));
+    }
+
+    @Issue("SECURITY-1923")
+    @Test
+    void doCreateItemWithValidXmlAndBadField() throws Exception {
+        final String CREATOR = "create_user";
+
+        r.jenkins.setSecurityRealm(r.createDummySecurityRealm());
+        MockAuthorizationStrategy mas = new MockAuthorizationStrategy();
+        mas.grant(Item.CREATE, Item.CONFIGURE, Item.READ, Jenkins.READ)
+                .everywhere()
+                .to(CREATOR);
+        r.jenkins.setAuthorizationStrategy(mas);
+
+        JenkinsRule.WebClient wc = r.createWebClient();
+        wc.login(CREATOR);
+        WebRequest req = new WebRequest(wc.createCrumbedUrl("createItem?name=testProject"), HttpMethod.POST);
+        req.setAdditionalHeader("Content-Type", "application/xml");
+        req.setRequestBody(VALID_XML_BAD_FIELD_USER_XML);
+
+        FailingHttpStatusCodeException e = assertThrows(FailingHttpStatusCodeException.class, () -> wc.getPage(req));
+        // This really shouldn't return 500, but that's what it does now.
+        assertThat(e.getStatusCode(), equalTo(500));
+
+        OldDataMonitor odm = ExtensionList.lookupSingleton(OldDataMonitor.class);
+        Map<Saveable, OldDataMonitor.VersionRange> data = odm.getData();
+
+        assertThat(data.size(), equalTo(0));
+
+        odm.doDiscard();
+
+        User.AllUsers.scanAll();
+        boolean createUser = false;
+        User badUser = User.getById("foo", createUser);
+
+        assertNull(badUser, "Should not have created user.");
+    }
+
+  private static final String VALID_XML_BAD_FIELD_USER_XML =
+          """
+                  <hudson.model.User>
+                    <id>foo</id>
+                    <fullName>Foo User</fullName>
+                    <badField/>
+                  </hudson.model.User>
+                  """;
 }

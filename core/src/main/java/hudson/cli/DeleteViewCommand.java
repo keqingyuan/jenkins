@@ -21,18 +21,17 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package hudson.cli;
 
 import hudson.AbortException;
 import hudson.Extension;
 import hudson.cli.handlers.ViewOptionHandler;
-import hudson.model.ViewGroup;
 import hudson.model.View;
-
-import org.kohsuke.args4j.Argument;
-
+import hudson.model.ViewGroup;
 import java.util.HashSet;
 import java.util.List;
+import org.kohsuke.args4j.Argument;
 
 /**
  * @author ogondza, pjanouse
@@ -41,7 +40,8 @@ import java.util.List;
 @Extension
 public class DeleteViewCommand extends CLICommand {
 
-    @Argument(usage="View names to delete", required=true, multiValued=true)
+    @SuppressWarnings("MismatchedQueryAndUpdateOfCollection")
+    @Argument(usage = "View names to delete", required = true, multiValued = true)
     private List<String> views;
 
     @Override
@@ -56,13 +56,12 @@ public class DeleteViewCommand extends CLICommand {
         boolean errorOccurred = false;
 
         // Remove duplicates
-        final HashSet<String> hs = new HashSet<>();
-        hs.addAll(views);
+        final HashSet<String> hs = new HashSet<>(views);
 
         ViewOptionHandler voh = new ViewOptionHandler(null, null, null);
 
-        for(String view_s : hs) {
-            View view = null;
+        for (String view_s : hs) {
+            View view;
 
             try {
                 view = voh.getView(view_s);
@@ -82,11 +81,11 @@ public class DeleteViewCommand extends CLICommand {
 
                 group.deleteView(view);
             } catch (Exception e) {
-                if(hs.size() == 1) {
+                if (hs.size() == 1) {
                     throw e;
                 }
 
-                final String errorMsg = String.format(view_s + ": " + e.getMessage());
+                final String errorMsg = view_s + ": " + e.getMessage();
                 stderr.println(errorMsg);
                 errorOccurred = true;
                 continue;

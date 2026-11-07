@@ -24,6 +24,7 @@
 
 package jenkins.management;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.Extension;
 import hudson.model.ManagementLink;
 import hudson.security.Permission;
@@ -38,9 +39,10 @@ public class ConsoleLink extends ManagementLink {
 
     @Override
     public String getIconFileName() {
-        return "notepad.png";
+        return "symbol-code-working";
     }
 
+    @Override
     public String getDisplayName() {
         return Messages.ConsoleLink_DisplayName();
     }
@@ -57,6 +59,12 @@ public class ConsoleLink extends ManagementLink {
 
     @Override
     public Permission getRequiredPermission() {
-        return Jenkins.RUN_SCRIPTS;
+        return Jenkins.ADMINISTER;
+    }
+
+    @NonNull
+    @Override
+    public Category getCategory() {
+        return Category.TOOLS;
     }
 }

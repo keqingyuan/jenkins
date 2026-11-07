@@ -1,16 +1,10 @@
 package jenkins.mvn;
 
-import hudson.EnvVars;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.Extension;
 import hudson.FilePath;
-import hudson.Util;
 import hudson.model.AbstractBuild;
 import hudson.model.TaskListener;
-import hudson.util.IOUtils;
-
-import java.io.File;
-
-import org.apache.commons.lang.StringUtils;
 import org.kohsuke.stapler.DataBoundConstructor;
 
 /**
@@ -33,31 +27,14 @@ public class FilePathGlobalSettingsProvider extends GlobalSettingsProvider {
 
     @Override
     public FilePath supplySettings(AbstractBuild<?, ?> build, TaskListener listener) {
-        if (StringUtils.isEmpty(path)) {
+        if (path == null || path.isEmpty()) {
             return null;
         }
 
         try {
-            EnvVars env = build.getEnvironment(listener);
-            String targetPath = Util.replaceMacro(this.path, build.getBuildVariableResolver());
-            targetPath = env.expand(targetPath);
-
-            if (IOUtils.isAbsolute(targetPath)) {
-                return new FilePath(new File(targetPath));
-            } else {
-                FilePath mrSettings = build.getModuleRoot().child(targetPath);
-                FilePath wsSettings = build.getWorkspace().child(targetPath);
-                try {
-                    if (!wsSettings.exists() && mrSettings.exists()) {
-                        wsSettings = mrSettings;
-                    }
-                } catch (Exception e) {
-                    throw new IllegalStateException("failed to find settings.xml at: " + wsSettings.getRemote());
-                }
-                return wsSettings;
-            }
+            return SettingsPathHelper.getSettings(build, listener, getPath());
         } catch (Exception e) {
-            throw new IllegalStateException("failed to prepare global settings.xml");
+            throw new IllegalStateException("failed to prepare global settings.xml", e);
         }
 
     }
@@ -65,6 +42,7 @@ public class FilePathGlobalSettingsProvider extends GlobalSettingsProvider {
     @Extension(ordinal = 10)
     public static class DescriptorImpl extends GlobalSettingsProviderDescriptor {
 
+        @NonNull
         @Override
         public String getDisplayName() {
             return Messages.FilePathGlobalSettingsProvider_DisplayName();

@@ -21,55 +21,58 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package hudson.util;
 
-import hudson.EnvVars;
+import static hudson.Functions.jsStringEscape;
+import static hudson.Util.singleQuote;
+
+import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import hudson.FilePath;
 import hudson.Functions;
 import hudson.Launcher;
 import hudson.ProxyConfiguration;
 import hudson.RelativePath;
 import hudson.Util;
-import hudson.FilePath;
 import hudson.model.AbstractBuild;
 import hudson.model.BuildListener;
 import hudson.model.Descriptor;
 import hudson.tasks.Builder;
 import hudson.util.ReflectionUtils.Parameter;
-import jenkins.model.Jenkins;
-
-import org.kohsuke.stapler.HttpResponse;
-import org.kohsuke.stapler.QueryParameter;
-import org.kohsuke.stapler.StaplerRequest;
-import org.kohsuke.stapler.StaplerResponse;
-import org.kohsuke.stapler.Stapler;
-import org.springframework.util.StringUtils;
-
-import javax.annotation.Nonnull;
-import javax.servlet.ServletException;
-
+import jakarta.servlet.ServletException;
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
-import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.lang.reflect.Method;
+import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URL;
 import java.net.URLConnection;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
-
-import static hudson.Functions.jsStringEscape;
-import static hudson.Util.*;
+import java.util.stream.Stream;
+import jenkins.model.Jenkins;
+import jenkins.util.SystemProperties;
+import org.kohsuke.stapler.HttpResponse;
+import org.kohsuke.stapler.QueryParameter;
+import org.kohsuke.stapler.Stapler;
+import org.kohsuke.stapler.StaplerRequest2;
+import org.kohsuke.stapler.StaplerResponse2;
 
 /**
  * Represents the result of the form field validation.
  *
  * <p>
  * Use one of the factory methods to create an instance, then return it from your {@code doCheckXyz}
- * method. (Via {@link HttpResponse}, the returned object will render the result into {@link StaplerResponse}.)
+ * method. (Via {@link HttpResponse}, the returned object will render the result into {@link StaplerResponse2}.)
  * This way of designing form field validation allows you to reuse {@code doCheckXyz()} methods
  * programmatically as well (by using {@link #kind}.
  *
@@ -87,7 +90,7 @@ import static hudson.Util.*;
  *
  * <pre>
  * String getAntVersion(File antHome) throws FormValidation {
- *    if(!antHome.isDirectory())
+ *    if (!antHome.isDirectory())
  *        throw FormValidation.error(antHome+" doesn't look like a home directory");
  *    ...
  *    return IOUtils.toString(new File(antHome,"version"));
@@ -115,9 +118,11 @@ import static hudson.Util.*;
  * @since 1.294
  */
 public abstract class FormValidation extends IOException implements HttpResponse {
+    /* package */ static /* non-final for Groovy */ boolean APPLY_CONTENT_SECURITY_POLICY_HEADERS = SystemProperties.getBoolean(FormValidation.class.getName() + ".applyContentSecurityPolicyHeaders", true);
     /**
      * Indicates the kind of result.
      */
+
     public enum Kind {
         /**
          * Form field value was OK and no problem was detected.
@@ -142,21 +147,21 @@ public abstract class FormValidation extends IOException implements HttpResponse
      *      can be used as {@code ok()}.
      */
     public static FormValidation error(String message) {
-        return errorWithMarkup(message==null?null: Util.escape(message));
+        return errorWithMarkup(message == null ? null : Util.escape(message));
     }
 
     public static FormValidation warning(String message) {
-        return warningWithMarkup(message==null?null:Util.escape(message));
+        return warningWithMarkup(message == null ? null : Util.escape(message));
     }
 
     public static FormValidation ok(String message) {
-        return okWithMarkup(message==null?null:Util.escape(message));
+        return okWithMarkup(message == null ? null : Util.escape(message));
     }
 
     /**
      * Singleton instance that represents "OK".
      */
-    private static final FormValidation OK = respond(Kind.OK,"<div/>");
+    private static final FormValidation OK = respond(Kind.OK, "<div/>");
 
     public static FormValidation ok() {
         return OK;
@@ -167,15 +172,15 @@ public abstract class FormValidation extends IOException implements HttpResponse
      * by formatting it with {@link String#format(String, Object[])}
      */
     public static FormValidation error(String format, Object... args) {
-        return error(String.format(format,args));
+        return error(String.format(format, args));
     }
 
     public static FormValidation warning(String format, Object... args) {
-        return warning(String.format(format,args));
+        return warning(String.format(format, args));
     }
 
     public static FormValidation ok(String format, Object... args) {
-        return ok(String.format(format,args));
+        return ok(String.format(format, args));
     }
 
     /**
@@ -195,23 +200,23 @@ public abstract class FormValidation extends IOException implements HttpResponse
     }
 
     private static FormValidation _error(Kind kind, Throwable e, String message) {
-        if (e==null)    return _errorWithMarkup(Util.escape(message),kind);
+        if (e == null)    return _errorWithMarkup(Util.escape(message), kind);
 
-        return _errorWithMarkup(Util.escape(message)+
-            " <a href='#' class='showDetails'>"
+        return _errorWithMarkup(Util.escape(message) +
+            " </div><div><a href='#' class='showDetails'>"
             + Messages.FormValidation_Error_Details()
             + "</a><pre style='display:none'>"
             + Util.escape(Functions.printThrowable(e)) +
-            "</pre>",kind
+            "</pre>", kind
         );
     }
 
     public static FormValidation error(Throwable e, String format, Object... args) {
-        return error(e,String.format(format,args));
+        return error(e, String.format(format, args));
     }
 
     public static FormValidation warning(Throwable e, String format, Object... args) {
-        return warning(e,String.format(format,args));
+        return warning(e, String.format(format, args));
     }
 
     /**
@@ -220,14 +225,15 @@ public abstract class FormValidation extends IOException implements HttpResponse
      * @return Validation of the least successful kind aggregating all child messages.
      * @since 1.590
      */
-    public static @Nonnull FormValidation aggregate(@Nonnull Collection<FormValidation> validations) {
+    @SuppressFBWarnings(value = "POTENTIAL_XML_INJECTION", justification = "intentional; caller's responsibility to escape HTML")
+    public static @NonNull FormValidation aggregate(@NonNull Collection<FormValidation> validations) {
         if (validations == null || validations.isEmpty()) return FormValidation.ok();
 
         if (validations.size() == 1) return validations.iterator().next();
 
         final StringBuilder sb = new StringBuilder("<ul style='list-style-type: none; padding-left: 0; margin: 0'>");
         FormValidation.Kind worst = Kind.OK;
-        for (FormValidation validation: validations) {
+        for (FormValidation validation : validations) {
             sb.append("<li>").append(validation.renderHtml()).append("</li>");
 
             if (validation.kind.ordinal() > worst.ordinal()) {
@@ -251,31 +257,31 @@ public abstract class FormValidation extends IOException implements HttpResponse
      *      can be used as {@code ok()}.
      */
     public static FormValidation errorWithMarkup(String message) {
-        return _errorWithMarkup(message,Kind.ERROR);
+        return _errorWithMarkup(message, Kind.ERROR);
     }
 
     public static FormValidation warningWithMarkup(String message) {
-        return _errorWithMarkup(message,Kind.WARNING);
+        return _errorWithMarkup(message, Kind.WARNING);
     }
 
     public static FormValidation okWithMarkup(String message) {
-        return _errorWithMarkup(message,Kind.OK);
+        return _errorWithMarkup(message, Kind.OK);
     }
 
     private static FormValidation _errorWithMarkup(final String message, final Kind kind) {
-        if(message==null)
+        if (message == null)
             return ok();
         return new FormValidation(kind, message) {
+            @Override
             public String renderHtml() {
-                StaplerRequest req = Stapler.getCurrentRequest();
+                StaplerRequest2 req = Stapler.getCurrentRequest2();
                 if (req == null) { // being called from some other context
                     return message;
                 }
-                // 1x16 spacer needed for IE since it doesn't support min-height
-                return "<div class="+ kind.name().toLowerCase(Locale.ENGLISH) +"><img src='"+
-                        req.getContextPath()+ Jenkins.RESOURCE_PATH+"/images/none.gif' height=16 width=1>"+
-                        message+"</div>";
+                return "<div class=\"" + kind.name().toLowerCase(Locale.ENGLISH) + "\">" +
+                        message + "</div>";
             }
+
             @Override public String toString() {
                 return kind + ": " + message;
             }
@@ -287,9 +293,11 @@ public abstract class FormValidation extends IOException implements HttpResponse
      */
     public static FormValidation respond(Kind kind, final String html) {
         return new FormValidation(kind) {
+            @Override
             public String renderHtml() {
                 return html;
             }
+
             @Override public String toString() {
                 return kind + ": " + html;
             }
@@ -302,13 +310,14 @@ public abstract class FormValidation extends IOException implements HttpResponse
      * <p>
      * This is used as a piece in a bigger validation effort.
      */
-    public static abstract class FileValidator {
+    public abstract static class FileValidator {
         public abstract FormValidation validate(File f);
 
         /**
          * Singleton instance that does no check.
          */
         public static final FileValidator NOOP = new FileValidator() {
+            @Override
             public FormValidation validate(File f) {
                 return ok();
             }
@@ -332,54 +341,35 @@ public abstract class FormValidation extends IOException implements HttpResponse
      */
     public static FormValidation validateExecutable(String exe, FileValidator exeValidator) {
         // insufficient permission to perform validation?
-        if(!Jenkins.getInstance().hasPermission(Jenkins.ADMINISTER)) return ok();
+        if (!Jenkins.get().hasPermission(Jenkins.ADMINISTER)) return ok();
+        final FormValidation[] result = {null};
 
-        exe = fixEmpty(exe);
-        if(exe==null)
-            return ok();
-
-        if(exe.indexOf(File.separatorChar)>=0) {
-            // this is full path
-            File f = new File(exe);
-            if(f.exists())  return exeValidator.validate(f);
-
-            File fexe = new File(exe+".exe");
-            if(fexe.exists())   return exeValidator.validate(fexe);
-
-            return error("There's no such file: "+exe);
-        }
-
-        // look in PATH
-        String path = EnvVars.masterEnvVars.get("PATH");
-        String tokenizedPath = "";
-        String delimiter = null;
-        if(path!=null) {
-            for (String _dir : Util.tokenize(path.replace("\\", "\\\\"),File.pathSeparator)) {
-                if (delimiter == null) {
-                  delimiter = ", ";
-                }
-                else {
-                  tokenizedPath += delimiter;
+        try {
+            DOSToUnixPathHelper.iteratePath(exe, new DOSToUnixPathHelper.Helper() {
+                @Override
+                public void ok() {
+                    result[0] = FormValidation.ok();
                 }
 
-                tokenizedPath += _dir.replace('\\', '/');
+                @Override
+                public void checkExecutable(File fexe) {
+                    result[0] = exeValidator.validate(fexe);
+                }
 
-                File dir = new File(_dir);
+                @Override
+                public void error(String string) {
+                    result[0] = FormValidation.error(string);
+                }
 
-                File f = new File(dir,exe);
-                if(f.exists())  return exeValidator.validate(f);
-
-                File fexe = new File(dir,exe+".exe");
-                if(fexe.exists())   return exeValidator.validate(fexe);
-            }
-
-            tokenizedPath += ".";
-        } else {
-            tokenizedPath = "unavailable.";
+                @Override
+                public void validate(File fexe) {
+                    result[0] = exeValidator.validate(fexe);
+                }
+            });
+            return result[0];
+        } catch (RuntimeException e) {
+            return FormValidation.error(e, "Unexpected error");
         }
-
-        // didn't find it
-        return error("There's no such executable "+exe+" in PATH: "+tokenizedPath);
     }
 
     /**
@@ -387,7 +377,7 @@ public abstract class FormValidation extends IOException implements HttpResponse
      */
     public static FormValidation validateNonNegativeInteger(String value) {
         try {
-            if(Integer.parseInt(value)<0)
+            if (Integer.parseInt(value) < 0)
                 return error(hudson.model.Messages.Hudson_NotANonNegativeNumber());
             return ok();
         } catch (NumberFormatException e) {
@@ -424,7 +414,7 @@ public abstract class FormValidation extends IOException implements HttpResponse
      */
     public static FormValidation validatePositiveInteger(String value) {
         try {
-            if(Integer.parseInt(value)<=0)
+            if (Integer.parseInt(value) <= 0)
                 return error(hudson.model.Messages.Hudson_NotAPositiveNumber());
             return ok();
         } catch (NumberFormatException e) {
@@ -455,12 +445,12 @@ public abstract class FormValidation extends IOException implements HttpResponse
     public static FormValidation validateBase64(String value, boolean allowWhitespace, boolean allowEmpty, String errorMessage) {
         try {
             String v = value;
-            if(!allowWhitespace) {
-                if(v.indexOf(' ')>=0 || v.indexOf('\n')>=0)
+            if (!allowWhitespace) {
+                if (v.indexOf(' ') >= 0 || v.indexOf('\n') >= 0)
                     return error(errorMessage);
             }
-            v=v.trim();
-            if(!allowEmpty && v.length()==0)
+            v = v.trim();
+            if (!allowEmpty && v.isEmpty())
                 return error(errorMessage);
 
             Base64.getDecoder().decode(v.getBytes(StandardCharsets.UTF_8));
@@ -476,11 +466,47 @@ public abstract class FormValidation extends IOException implements HttpResponse
      * <p>
      * This allows the check method to call various utility methods in a concise syntax.
      */
-    public static abstract class URLCheck {
+    public abstract static class URLCheck {
+        /**
+         * Open the given URI and read text content from it. This method honors the Content-type
+         * header.
+         *
+         * @throws IOException if the URI scheme is not supported, the connection was interrupted,
+         *     or the response was an error
+         * @since 2.382
+         */
+        protected Stream<String> open(URI uri) throws IOException {
+            HttpClient httpClient = ProxyConfiguration.newHttpClient();
+            HttpRequest httpRequest;
+            try {
+                httpRequest = ProxyConfiguration.newHttpRequestBuilder(uri).GET().build();
+            } catch (IllegalArgumentException e) {
+                throw new IOException(e);
+            }
+            java.net.http.HttpResponse<Stream<String>> httpResponse;
+            try {
+                httpResponse =
+                        httpClient.send(httpRequest, java.net.http.HttpResponse.BodyHandlers.ofLines());
+            } catch (InterruptedException e) {
+                throw new IOException(e);
+            }
+            if (httpResponse.statusCode() != HttpURLConnection.HTTP_OK) {
+                throw new IOException(
+                        "Server returned HTTP response code "
+                                + httpResponse.statusCode()
+                                + " for URI "
+                                + uri);
+            }
+            return httpResponse.body();
+        }
+
         /**
          * Opens the given URL and reads text content from it.
          * This method honors Content-type header.
+         *
+         * @deprecated use {@link #open(URI)}
          */
+        @Deprecated
         protected BufferedReader open(URL url) throws IOException {
             // use HTTP content type to find out the charset.
             URLConnection con = ProxyConfiguration.open(url);
@@ -488,18 +514,32 @@ public abstract class FormValidation extends IOException implements HttpResponse
                 throw new IOException(url.toExternalForm());
             }
             return new BufferedReader(
-                new InputStreamReader(con.getInputStream(),getCharset(con)));
+                new InputStreamReader(con.getInputStream(), getCharset(con)));
+        }
+
+        /**
+         * Find the string literal from the given stream of lines.
+         *
+         * @return true if found, false otherwise
+         * @since 2.382
+         */
+        protected boolean findText(Stream<String> in, String literal) {
+            try (in) {
+                return in.anyMatch(line -> line.contains(literal));
+            }
         }
 
         /**
          * Finds the string literal from the given reader.
          * @return
          *      true if found, false otherwise.
+         * @deprecated use {@link #findText(Stream, String)}
          */
+        @Deprecated
         protected boolean findText(BufferedReader in, String literal) throws IOException {
             String line;
-            while((line=in.readLine())!=null)
-                if(line.contains(literal))
+            while ((line = in.readLine()) != null)
+                if (line.contains(literal))
                     return true;
             return false;
         }
@@ -511,22 +551,22 @@ public abstract class FormValidation extends IOException implements HttpResponse
          * @param url
          *      Pass in the URL that was connected. Used for error diagnosis.
          */
-        protected FormValidation handleIOException(String url, IOException e) throws IOException, ServletException {
+        protected FormValidation handleIOException(String url, IOException e) throws IOException {
             // any invalid URL comes here
-            if(e.getMessage().equals(url))
+            if (e.getMessage().equals(url))
                 // Sun JRE (and probably others too) often return just the URL in the error.
-                return error("Unable to connect "+url);
+                return error("Unable to connect " + url, e);
             else
-                return error(e.getMessage());
+                return error(e.getMessage(), e);
         }
 
         /**
          * Figures out the charset from the content-type header.
          */
         private String getCharset(URLConnection con) {
-            for( String t : con.getContentType().split(";") ) {
+            for (String t : con.getContentType().split(";")) {
                 t = t.trim().toLowerCase(Locale.ENGLISH);
-                if(t.startsWith("charset="))
+                if (t.startsWith("charset="))
                     return t.substring(8);
             }
             // couldn't find it. HTML spec says default is US-ASCII,
@@ -540,7 +580,7 @@ public abstract class FormValidation extends IOException implements HttpResponse
          * Implement the actual form validation logic, by using other convenience methods defined in this class.
          * If you are not using any of those, you don't need to extend from this class.
          */
-        protected abstract FormValidation check() throws IOException, ServletException;
+        protected abstract FormValidation check() throws IOException;
     }
 
 
@@ -549,7 +589,6 @@ public abstract class FormValidation extends IOException implements HttpResponse
 
     /**
      * Instances should be created via one of the factory methods above.
-     * @param kind
      */
     private FormValidation(Kind kind) {
         this.kind = kind;
@@ -560,7 +599,8 @@ public abstract class FormValidation extends IOException implements HttpResponse
         this.kind = kind;
     }
 
-    public void generateResponse(StaplerRequest req, StaplerResponse rsp, Object node) throws IOException, ServletException {
+    @Override
+    public void generateResponse(StaplerRequest2 req, StaplerResponse2 rsp, Object node) throws IOException, ServletException {
         respond(rsp, renderHtml());
     }
 
@@ -569,8 +609,11 @@ public abstract class FormValidation extends IOException implements HttpResponse
     /**
      * Sends out an arbitrary HTML fragment as the output.
      */
-    protected void respond(StaplerResponse rsp, String html) throws IOException, ServletException {
+    protected void respond(StaplerResponse2 rsp, String html) throws IOException, ServletException {
         rsp.setContentType("text/html;charset=UTF-8");
+        if (APPLY_CONTENT_SECURITY_POLICY_HEADERS) {
+            rsp.setHeader("Content-Security-Policy", "sandbox; default-src 'none';");
+        }
         rsp.getWriter().print(html);
     }
 
@@ -592,11 +635,11 @@ public abstract class FormValidation extends IOException implements HttpResponse
 
         public CheckMethod(Descriptor descriptor, String fieldName) {
             this.descriptor = descriptor;
-            this.capitalizedFieldName = StringUtils.capitalize(fieldName);
+            this.capitalizedFieldName = fieldName == null || fieldName.isEmpty() ? fieldName : Character.toTitleCase(fieldName.charAt(0)) + fieldName.substring(1);
 
             method = ReflectionUtils.getPublicMethodNamed(descriptor.getClass(), "doCheck" + capitalizedFieldName);
-            if(method !=null) {
-                names = new ArrayList<String>();
+            if (method != null) {
+                names = new ArrayList<>();
                 findParameters(method);
             } else {
                 names = null;
@@ -609,24 +652,24 @@ public abstract class FormValidation extends IOException implements HttpResponse
         private void findParameters(Method method) {
             for (Parameter p : ReflectionUtils.getParameters(method)) {
                 QueryParameter qp = p.annotation(QueryParameter.class);
-                if (qp!=null) {
+                if (qp != null) {
                     String name = qp.value();
-                    if (name.length()==0) name = p.name();
-                    if (name==null || name.length()==0)
+                    if (name.isEmpty()) name = p.name();
+                    if (name == null || name.isEmpty())
                         continue;   // unknown parameter name. we'll report the error when the form is submitted.
                     if (name.equals("value"))
                         continue;   // 'value' parameter is implicit
 
                     RelativePath rp = p.annotation(RelativePath.class);
-                    if (rp!=null)
-                        name = rp.value()+'/'+name;
+                    if (rp != null)
+                        name = rp.value() + '/' + name;
 
                     names.add(name);
                     continue;
                 }
 
                 Method m = ReflectionUtils.getPublicMethodNamed(p.type(), "fromStapler");
-                if (m!=null)    findParameters(m);
+                if (m != null)    findParameters(m);
             }
         }
 
@@ -635,18 +678,20 @@ public abstract class FormValidation extends IOException implements HttpResponse
          *
          * This method computes JavaScript expression, which evaluates to the URL that the client should request
          * the validation to.
-         * A modern version depends on {@link #toStemUrl()} and {@link #getDependsOn()}
+         *
+         * @deprecated Use {@link #toStemUrl()} and {@link #getDependsOn()} instead.
          */
+        @Deprecated
         public String toCheckUrl() {
-            if (names==null)    return null;
+            if (names == null)    return null;
 
-            if (checkUrl==null) {
+            if (checkUrl == null) {
                 StringBuilder buf = new StringBuilder(singleQuote(relativePath()));
                 if (!names.isEmpty()) {
                     buf.append("+qs(this).addThis()");
 
                     for (String name : names) {
-                        buf.append(".nearBy('"+name+"')");
+                        buf.append(".nearBy('").append(name).append("')");
                     }
                     buf.append(".toString()");
                 }
@@ -663,15 +708,15 @@ public abstract class FormValidation extends IOException implements HttpResponse
          * the query string portion (which is built on the client side.)
          */
         public String toStemUrl() {
-            if (names==null)    return null;
+            if (names == null)    return null;
             return Descriptor.getCurrentDescriptorByNameUrl() + '/' + relativePath();
         }
 
         public String getDependsOn() {
-            if (names==null)    return null;
+            if (names == null)    return null;
 
-            if (dependsOn==null)
-                dependsOn = join(names," ");
+            if (dependsOn == null)
+                dependsOn = String.join(" ", names);
             return dependsOn;
         }
 

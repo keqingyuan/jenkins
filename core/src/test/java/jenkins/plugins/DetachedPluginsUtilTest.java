@@ -1,70 +1,65 @@
 package jenkins.plugins;
 
-import hudson.util.VersionNumber;
-import jenkins.util.java.JavaUtils;
-import org.apache.commons.io.IOUtils;
-import org.junit.Test;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.hasItems;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.IOException;
+import hudson.util.VersionNumber;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.stream.Collectors;
+import org.apache.commons.io.IOUtils;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+class DetachedPluginsUtilTest {
 
-public class DetachedPluginsUtilTest {
     @Test
-    public void checkJaxb() {
+    void checkJaxb() {
         final List<DetachedPluginsUtil.DetachedPlugin> plugins =
                 DetachedPluginsUtil.DETACHED_LIST.stream()
                         .filter(plugin -> plugin.getShortName().equals("jaxb"))
-                        .collect(Collectors.toList());
+                        .toList();
         assertEquals(1, plugins.size());
 
-        DetachedPluginsUtil.DetachedPlugin jaxb = plugins.get(0);
+        DetachedPluginsUtil.DetachedPlugin jaxb = plugins.getFirst();
 
-        assertEquals(new VersionNumber("11"), jaxb.getMinimumJavaVersion());
+        final List<String> detachedPlugins = mapToPluginShortName(DetachedPluginsUtil.getDetachedPlugins());
+        assertThat(detachedPlugins, hasItem("jaxb"));
 
-        final List<DetachedPluginsUtil.DetachedPlugin> detachedPlugins = DetachedPluginsUtil.getDetachedPlugins();
-        if (JavaUtils.isRunningWithJava8OrBelow()) {
-            assertEquals(0, detachedPlugins.stream()
-                    .filter(plugin -> plugin.getShortName().equals("jaxb"))
-                    .collect(Collectors.toList()).size());
-        } else if (JavaUtils.getCurrentJavaRuntimeVersionNumber().isNewerThanOrEqualTo(new VersionNumber("11.0.2"))) {
-            assertEquals(1, detachedPlugins.stream()
-                    .filter(plugin -> plugin.getShortName().equals("jaxb"))
-                    .collect(Collectors.toList()).size());
+        final List<DetachedPluginsUtil.DetachedPlugin> detachedPluginsSince2_161 =
+                DetachedPluginsUtil.getDetachedPlugins(new VersionNumber("2.161"));
 
-            final List<DetachedPluginsUtil.DetachedPlugin> detachedPluginsSince2_161 =
-                    DetachedPluginsUtil.getDetachedPlugins(new VersionNumber("2.161"));
+        assertThat(mapToPluginShortName(detachedPluginsSince2_161), hasItems("jaxb", "trilead-api"));
+    }
 
-            assertEquals(1, detachedPluginsSince2_161.size());
-            assertEquals("jaxb", detachedPluginsSince2_161.get(0).getShortName());
-        }
+    private List<String> mapToPluginShortName(List<DetachedPluginsUtil.DetachedPlugin> detachedPlugins) {
+        return detachedPlugins.stream().map(DetachedPluginsUtil.DetachedPlugin::getShortName).collect(Collectors.toList());
     }
 
     /**
-     * Checks the format of the <code>/jenkins/split-plugins.txt</code> file has maximum 4 columns.
+     * Checks the format of the {@code /jenkins/split-plugins.txt} file has maximum 4 columns.
      */
     @Test
-    public void checkSplitPluginsFileFormat() throws IOException {
-        final List<String> splitPluginsLines = IOUtils.readLines(getClass().getResourceAsStream("/jenkins/split-plugins.txt"));
-        assertTrue(!splitPluginsLines.isEmpty());
+    void checkSplitPluginsFileFormat() {
+        final List<String> splitPluginsLines = IOUtils.readLines(getClass().getResourceAsStream("/jenkins/split-plugins.txt"), StandardCharsets.UTF_8);
+        assertFalse(splitPluginsLines.isEmpty());
 
         // File is not only comments
         final List<String> linesWithoutComments = splitPluginsLines.stream()
-                .filter(line -> !line.startsWith("#")).collect(Collectors.toList());
-        assertFalse( "weird, split-plugins.txt only has comments?", linesWithoutComments.isEmpty());
+                .filter(line -> !line.startsWith("#")).toList();
+        assertFalse(linesWithoutComments.isEmpty(), "weird, split-plugins.txt only has comments?");
 
         //
-        assertFalse("no whitespaces only lines allowed" ,linesWithoutComments.stream()
+        assertFalse(linesWithoutComments.stream()
                             .filter(line -> line.trim().isEmpty())
-                            .anyMatch(line -> !line.isEmpty()));
+                            .anyMatch(line -> !line.isEmpty()), "no whitespaces only lines allowed");
 
 
-        assertTrue( "max 4 columns is supported", linesWithoutComments.stream()
+        assertTrue(linesWithoutComments.stream()
                            .map(line -> line.split(" "))
-                           .noneMatch(line -> line.length > 4));
+                           .noneMatch(line -> line.length > 4), "max 4 columns is supported");
     }
 }

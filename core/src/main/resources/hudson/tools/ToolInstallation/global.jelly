@@ -23,22 +23,24 @@ THE SOFTWARE.
 -->
 <?jelly escape-by-default='true'?>
 <j:jelly xmlns:j="jelly:core" xmlns:st="jelly:stapler" xmlns:d="jelly:define" xmlns:l="/lib/layout" xmlns:t="/lib/hudson" xmlns:f="/lib/form" xmlns:local="local">
-  <f:section title="${descriptor.displayName}">
+  <f:section title="${%title(descriptor.displayName)}">
     <d:taglib uri="local">
       <d:tag name="section">
-        <f:entry title="${%title(descriptor.displayName)}" description="${%description(descriptor.displayName)}">
-          <f:repeatable name="tool" var="instance" items="${descriptor.installations}"
-                        add="${%label.add(descriptor.displayName)}" header="${descriptor.displayName}" enableTopButton="true">
+        <!-- While there's no longer a title/description for f:entry at the top level, keep this around for f:entries in tool config pages to be safe -->
+        <j:set var="escapeEntryTitleAndDescription" value="true"/>
+        <f:entry>
+          <f:repeatable name="tool" var="instance" items="${descriptor.installations}" enableTopButton="true"
+                        add="${%label.add(descriptor.displayName)}" header="${descriptor.displayName}"
+                        noAddButton="${readOnlyMode ? 'true' : null}"
+          >
             <j:set var="toolDescriptor" value="${descriptor}" /><!-- to make this descriptor accessible from properties -->
-            <table width="100%">
+            <div>
               <st:include page="config.jelly" from="${descriptor}" class="${descriptor.clazz}"/>
               <f:descriptorList descriptors="${descriptor.propertyDescriptors}" field="properties"/>
-              <f:entry title="">
-                <div align="right">
-                  <f:repeatableDeleteButton value="${%label.delete(descriptor.displayName)}"/>
-                </div>
-              </f:entry>
-            </table>
+              <l:isAdmin>
+                <f:repeatableDeleteButton />
+              </l:isAdmin>
+            </div>
           </f:repeatable>
         </f:entry>
       </d:tag>
@@ -48,19 +50,9 @@ THE SOFTWARE.
         <local:section/>
       </j:when>
       <j:otherwise>
-        <tr> <!-- f:advanced does not work well here because of placement in third column -->
-          <td colspan="3">
-            <st:adjunct includes="lib.form.advanced.advanced"/>
-            <div class="advancedLink" style="text-align:left">
-              <input type="button" value="${%title(descriptor.displayName)}..." class="advanced-button advancedButton"/>
-            </div>
-            <table class="advancedBody">
-              <tbody>
-                <local:section/>
-              </tbody>
-            </table>
-          </td>
-        </tr>
+        <f:advanced title="${%title(descriptor.displayName)}">
+          <local:section/>
+        </f:advanced>
       </j:otherwise>
     </j:choose>
   </f:section>

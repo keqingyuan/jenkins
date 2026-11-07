@@ -21,47 +21,37 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package jenkins.security.seed;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.ExtensionList;
+import hudson.ExtensionPoint;
 import hudson.model.User;
-import jenkins.security.SecurityListener;
-import org.apache.tools.ant.ExtensionPoint;
-import org.kohsuke.accmod.Restricted;
-import org.kohsuke.accmod.restrictions.NoExternalUse;
-
-import javax.annotation.Nonnull;
 import java.util.List;
-import java.util.logging.Level;
 import java.util.logging.Logger;
+import jenkins.security.SecurityListener;
+import jenkins.util.Listeners;
 
 /**
  * Listener notified when a user was requested to changed their seed
+ * @since 2.160 and 2.150.2, but restricted (unavailable to plugins) before 2.406
  */
-//TODO remove restriction on the weekly after the security fix
-@Restricted(NoExternalUse.class)
-public abstract class UserSeedChangeListener extends ExtensionPoint {
+public abstract class UserSeedChangeListener implements ExtensionPoint {
     private static final Logger LOGGER = Logger.getLogger(SecurityListener.class.getName());
 
     /**
      * Called after a seed was changed but before the user is saved.
      * @param user The target user
      */
-    public abstract void onUserSeedRenewed(@Nonnull User user);
+    public abstract void onUserSeedRenewed(@NonNull User user);
 
     /**
      * Will notify all the registered listeners about the event
      * @param user The target user
      */
-    public static void fireUserSeedRenewed(@Nonnull User user) {
-        for (UserSeedChangeListener l : all()) {
-            try {
-                l.onUserSeedRenewed(user);
-            }
-            catch (Exception e) {
-                LOGGER.log(Level.WARNING, "Exception caught during onUserSeedRenewed event", e);
-            }
-        }
+    public static void fireUserSeedRenewed(@NonNull User user) {
+        Listeners.notify(UserSeedChangeListener.class, true, l -> l.onUserSeedRenewed(user));
     }
 
     private static List<UserSeedChangeListener> all() {

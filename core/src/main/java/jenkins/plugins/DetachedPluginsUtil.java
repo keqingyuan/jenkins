@@ -1,17 +1,10 @@
 package jenkins.plugins;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.ClassicPluginStrategy;
 import hudson.PluginWrapper;
 import hudson.util.VersionNumber;
-import io.jenkins.lib.versionnumber.JavaSpecificationVersion;
-import jenkins.util.java.JavaUtils;
-import org.kohsuke.accmod.Restricted;
-import org.kohsuke.accmod.restrictions.NoExternalUse;
-
-import javax.annotation.Nonnull;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -22,6 +15,9 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.apache.commons.io.IOUtils;
+import org.kohsuke.accmod.Restricted;
+import org.kohsuke.accmod.restrictions.NoExternalUse;
 
 /**
  * Dedicated class to handle the logic related to so-called <em>detached plugins</em>.
@@ -33,7 +29,7 @@ import java.util.stream.Stream;
  * <p>
  * This code was originally moved from {@link ClassicPluginStrategy}.
  *
- * @since TODO
+ * @since 2.163
  */
 @Restricted(NoExternalUse.class)
 public class DetachedPluginsUtil {
@@ -52,20 +48,18 @@ public class DetachedPluginsUtil {
 
     static {
         try (InputStream is = ClassicPluginStrategy.class.getResourceAsStream("/jenkins/split-plugins.txt")) {
-            DETACHED_LIST = ImmutableList.copyOf(configLines(is).map(line -> {
+            DETACHED_LIST = configLines(is).map(line -> {
                 String[] pieces = line.split(" ");
 
-                // defaults to Java 1.0 to install unconditionally if unspecified
                 return new DetachedPluginsUtil.DetachedPlugin(pieces[0],
                                                               pieces[1] + ".*",
-                                                              pieces[2],
-                                                              pieces.length == 4 ? pieces[3] : "1.0");
-            }).collect(Collectors.toList()));
+                                                              pieces[2]);
+            }).collect(Collectors.toUnmodifiableList());
         } catch (IOException x) {
             throw new ExceptionInInitializerError(x);
         }
         try (InputStream is = ClassicPluginStrategy.class.getResourceAsStream("/jenkins/split-plugin-cycles.txt")) {
-            BREAK_CYCLES = ImmutableSet.copyOf(configLines(is).collect(Collectors.toSet()));
+            BREAK_CYCLES = configLines(is).collect(Collectors.toUnmodifiableSet());
         } catch (IOException x) {
             throw new ExceptionInInitializerError(x);
         }
@@ -79,7 +73,7 @@ public class DetachedPluginsUtil {
      *
      * @since 2.0
      */
-    @Nonnull
+    @NonNull
     public static List<PluginWrapper.Dependency> getImpliedDependencies(String pluginName, String jenkinsVersion) {
         List<PluginWrapper.Dependency> out = new ArrayList<>();
         for (DetachedPlugin detached : getDetachedPlugins()) {
@@ -93,7 +87,7 @@ public class DetachedPluginsUtil {
             }
             // some earlier versions of maven-hpi-plugin apparently puts "null" as a literal in Hudson-Version. watch out for them.
             if (jenkinsVersion == null || jenkinsVersion.equals("null") || new VersionNumber(jenkinsVersion).compareTo(detached.splitWhen) <= 0) {
-                out.add(new PluginWrapper.Dependency(detached.shortName + ':' + detached.requiredVersion));
+                out.add(new PluginWrapper.Dependency(detached.shortName + ':' + detached.requiredVersion + ";resolution:=optional"));
                 LOGGER.log(Level.FINE, "adding implicit dependency {0} → {1} because of {2}",
                            new Object[]{pluginName, detached.shortName, jenkinsVersion});
             }
@@ -102,16 +96,13 @@ public class DetachedPluginsUtil {
     }
 
     /**
-     * Get the list of all plugins that have ever been {@link DetachedPlugin detached} from Jenkins core, applicable to the current Java runtime.
+     * Get the list of all plugins that have ever been {@link DetachedPlugin detached} from Jenkins core.
      *
      * @return A {@link List} of {@link DetachedPlugin}s.
-     * @see JavaUtils#getCurrentJavaRuntimeVersionNumber()
      */
-    public static @Nonnull
+    public static @NonNull
     List<DetachedPlugin> getDetachedPlugins() {
-        return DETACHED_LIST.stream()
-                .filter(plugin -> JavaUtils.getCurrentJavaRuntimeVersionNumber().isNewerThanOrEqualTo(plugin.getMinimumJavaVersion()))
-                .collect(Collectors.toList());
+        return List.copyOf(DETACHED_LIST);
     }
 
     /**
@@ -121,8 +112,8 @@ public class DetachedPluginsUtil {
      * @return A {@link List} of {@link DetachedPlugin}s.
      * @see #getDetachedPlugins()
      */
-    public static @Nonnull
-    List<DetachedPlugin> getDetachedPlugins(@Nonnull VersionNumber since) {
+    public static @NonNull
+    List<DetachedPlugin> getDetachedPlugins(@NonNull VersionNumber since) {
         return getDetachedPlugins().stream()
                 .filter(detachedPlugin -> !detachedPlugin.getSplitWhen().isOlderThan(since))
                 .collect(Collectors.toList());
@@ -135,7 +126,7 @@ public class DetachedPluginsUtil {
      * @return {@code true} if the plugin is a plugin that was detached from Jenkins at some
      * point in the past, otherwise {@code false}.
      */
-    public static boolean isDetachedPlugin(@Nonnull String pluginId) {
+    public static boolean isDetachedPlugin(@NonNull String pluginId) {
         for (DetachedPlugin detachedPlugin : getDetachedPlugins()) {
             if (detachedPlugin.getShortName().equals(pluginId)) {
                 return true;
@@ -145,8 +136,8 @@ public class DetachedPluginsUtil {
         return false;
     }
 
-    private static Stream<String> configLines(InputStream is) throws IOException {
-        return org.apache.commons.io.IOUtils.readLines(is, StandardCharsets.UTF_8).stream().filter(line -> !line.matches("#.*|\\s*"));
+    public static Stream<String> configLines(InputStream is) throws IOException {
+        return IOUtils.readLines(is, StandardCharsets.UTF_8).stream().filter(line -> !line.matches("#.*|\\s*"));
     }
 
     /**
@@ -175,13 +166,11 @@ public class DetachedPluginsUtil {
          */
         private final VersionNumber splitWhen;
         private final String requiredVersion;
-        private final JavaSpecificationVersion minJavaVersion;
 
-        private DetachedPlugin(String shortName, String splitWhen, String requiredVersion, String minJavaVersion) {
+        private DetachedPlugin(String shortName, String splitWhen, String requiredVersion) {
             this.shortName = shortName;
             this.splitWhen = new VersionNumber(splitWhen);
             this.requiredVersion = requiredVersion;
-            this.minJavaVersion = new JavaSpecificationVersion(minJavaVersion);
         }
 
         /**
@@ -215,11 +204,6 @@ public class DetachedPluginsUtil {
         @Override
         public String toString() {
             return shortName + " " + splitWhen.toString().replace(".*", "") + " " + requiredVersion;
-        }
-
-        @Nonnull
-        public JavaSpecificationVersion getMinimumJavaVersion() {
-            return minJavaVersion;
         }
     }
 }

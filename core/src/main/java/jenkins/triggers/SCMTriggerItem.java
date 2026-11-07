@@ -24,9 +24,12 @@
 
 package jenkins.triggers;
 
+import edu.umd.cs.findbugs.annotations.CheckForNull;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.model.Action;
 import hudson.model.Item;
 import hudson.model.Job;
+import hudson.model.SCMedItem;
 import hudson.model.TaskListener;
 import hudson.model.queue.QueueTaskFuture;
 import hudson.scm.NullSCM;
@@ -35,10 +38,9 @@ import hudson.scm.SCM;
 import hudson.triggers.SCMTrigger;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import javax.annotation.CheckForNull;
-import javax.annotation.Nonnull;
 import jenkins.model.ParameterizedJobMixIn;
 import jenkins.scm.SCMDecisionHandler;
 
@@ -70,7 +72,7 @@ public interface SCMTriggerItem {
      * The implementation is responsible for checking the {@link SCMDecisionHandler} before proceeding
      * with the actual polling.
      */
-    @Nonnull PollingResult poll(@Nonnull TaskListener listener);
+    @NonNull PollingResult poll(@NonNull TaskListener listener);
 
     @CheckForNull SCMTrigger getSCMTrigger();
 
@@ -79,7 +81,7 @@ public interface SCMTriggerItem {
      * May be used for informational purposes, or to determine whether to initiate polling.
      * @return a possibly empty collection
      */
-    @Nonnull Collection<? extends SCM> getSCMs();
+    @NonNull Collection<? extends SCM> getSCMs();
 
     /**
      * Schedules a polling of this project.
@@ -110,30 +112,36 @@ public interface SCMTriggerItem {
         public static @CheckForNull SCMTriggerItem asSCMTriggerItem(Item item) {
             if (item instanceof SCMTriggerItem) {
                 return (SCMTriggerItem) item;
-            } else if (item instanceof hudson.model.SCMedItem) {
-                return new Bridge((hudson.model.SCMedItem) item);
+            } else if (item instanceof SCMedItem) {
+                return new Bridge((SCMedItem) item);
             } else {
                 return null;
             }
         }
 
         private static final class Bridge implements SCMTriggerItem {
-            private final hudson.model.SCMedItem delegate;
-            Bridge(hudson.model.SCMedItem delegate) {
+            private final SCMedItem delegate;
+
+            Bridge(SCMedItem delegate) {
                 this.delegate = delegate;
             }
+
             @Override public Item asItem() {
                 return delegate.asProject();
             }
+
             @Override public int getNextBuildNumber() {
                 return delegate.asProject().getNextBuildNumber();
             }
+
             @Override public int getQuietPeriod() {
                 return delegate.asProject().getQuietPeriod();
             }
+
             @Override public QueueTaskFuture<?> scheduleBuild2(int quietPeriod, Action... actions) {
                 return delegate.asProject().scheduleBuild2(quietPeriod, null, actions);
             }
+
             @Override public PollingResult poll(TaskListener listener) {
                 SCMDecisionHandler veto = SCMDecisionHandler.firstShouldPollVeto(asItem());
                 if (veto != null && !veto.shouldPoll(asItem())) {
@@ -142,15 +150,17 @@ public interface SCMTriggerItem {
                 }
                 return delegate.poll(listener);
             }
+
             @Override public SCMTrigger getSCMTrigger() {
                 return delegate.asProject().getTrigger(SCMTrigger.class);
             }
+
             @Override public Collection<? extends SCM> getSCMs() {
                 return resolveMultiScmIfConfigured(delegate.asProject().getScm());
             }
         }
 
-        public static @Nonnull Collection<? extends SCM> resolveMultiScmIfConfigured(@CheckForNull SCM scm) {
+        public static @NonNull Collection<? extends SCM> resolveMultiScmIfConfigured(@CheckForNull SCM scm) {
             if (scm == null || scm instanceof NullSCM) {
                 return Collections.emptySet();
             } else if (scm.getClass().getName().equals("org.jenkinsci.plugins.multiplescms.MultiSCM")) {
@@ -158,10 +168,10 @@ public interface SCMTriggerItem {
                     return (Collection<? extends SCM>) scm.getClass().getMethod("getConfiguredSCMs").invoke(scm);
                 } catch (Exception x) {
                     Logger.getLogger(SCMTriggerItem.class.getName()).log(Level.WARNING, null, x);
-                    return Collections.singleton(scm);
+                    return Set.of(scm);
                 }
             } else {
-                return Collections.singleton(scm);
+                return Set.of(scm);
             }
         }
 

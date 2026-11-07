@@ -24,23 +24,23 @@
 
 package jenkins.security;
 
+import edu.umd.cs.findbugs.annotations.CheckForNull;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.Extension;
 import hudson.PluginWrapper;
 import hudson.model.PersistentDescriptor;
 import hudson.model.UpdateSite;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
 import jenkins.model.GlobalConfiguration;
 import jenkins.model.GlobalConfigurationCategory;
 import jenkins.model.Jenkins;
 import net.sf.json.JSONObject;
 import org.kohsuke.accmod.Restricted;
 import org.kohsuke.accmod.restrictions.NoExternalUse;
-import org.kohsuke.stapler.StaplerRequest;
-
-import javax.annotation.CheckForNull;
-import javax.annotation.Nonnull;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Set;
+import org.kohsuke.stapler.DataBoundSetter;
+import org.kohsuke.stapler.StaplerRequest2;
 
 /**
  * Configuration for update site-provided warnings.
@@ -56,28 +56,33 @@ public class UpdateSiteWarningsConfiguration extends GlobalConfiguration impleme
     private HashSet<String> ignoredWarnings = new HashSet<>();
 
     @Override
-    public @Nonnull GlobalConfigurationCategory getCategory() {
+    public @NonNull GlobalConfigurationCategory getCategory() {
         return GlobalConfigurationCategory.get(GlobalConfigurationCategory.Security.class);
     }
 
-    @Nonnull
+    @NonNull
     public Set<String> getIgnoredWarnings() {
         return Collections.unmodifiableSet(ignoredWarnings);
     }
 
-    public boolean isIgnored(@Nonnull UpdateSite.Warning warning) {
+    @DataBoundSetter // unused; for CasC support only
+    public void setIgnoredWarnings(Set<String> ignoredWarnings) {
+        this.ignoredWarnings = new HashSet<>(ignoredWarnings);
+    }
+
+    public boolean isIgnored(@NonNull UpdateSite.Warning warning) {
         return ignoredWarnings.contains(warning.id);
     }
 
     @CheckForNull
-    public PluginWrapper getPlugin(@Nonnull UpdateSite.Warning warning) {
-        if (warning.type != UpdateSite.Warning.Type.PLUGIN) {
+    public PluginWrapper getPlugin(@NonNull UpdateSite.Warning warning) {
+        if (warning.type != UpdateSite.WarningType.PLUGIN) {
             return null;
         }
         return Jenkins.get().getPluginManager().getPlugin(warning.component);
     }
 
-    @Nonnull
+    @NonNull
     public Set<UpdateSite.Warning> getAllWarnings() {
         HashSet<UpdateSite.Warning> allWarnings = new HashSet<>();
 
@@ -90,12 +95,12 @@ public class UpdateSiteWarningsConfiguration extends GlobalConfiguration impleme
         return allWarnings;
     }
 
-    @Nonnull
+    @NonNull
     public Set<UpdateSite.Warning> getApplicableWarnings() {
         Set<UpdateSite.Warning> allWarnings = getAllWarnings();
 
         HashSet<UpdateSite.Warning> applicableWarnings = new HashSet<>();
-        for (UpdateSite.Warning warning: allWarnings) {
+        for (UpdateSite.Warning warning : allWarnings) {
             if (warning.isRelevant()) {
                 applicableWarnings.add(warning);
             }
@@ -106,7 +111,7 @@ public class UpdateSiteWarningsConfiguration extends GlobalConfiguration impleme
 
 
     @Override
-    public boolean configure(StaplerRequest req, JSONObject json) throws FormException {
+    public boolean configure(StaplerRequest2 req, JSONObject json) throws FormException {
         HashSet<String> newIgnoredWarnings = new HashSet<>();
         for (Object key : json.keySet()) {
             String warningKey = key.toString();

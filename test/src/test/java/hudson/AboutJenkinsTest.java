@@ -21,57 +21,99 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package hudson;
 
-import com.gargoylesoftware.htmlunit.html.HtmlPage;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+import java.net.HttpURLConnection;
 import jenkins.model.Jenkins;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.experimental.categories.Category;
+import org.htmlunit.html.HtmlPage;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.Issue;
 import org.jvnet.hudson.test.JenkinsRule;
 import org.jvnet.hudson.test.MockAuthorizationStrategy;
-import org.jvnet.hudson.test.SmokeTest;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
-import java.net.HttpURLConnection;
+@Tag("SmokeTest")
+@WithJenkins
+class AboutJenkinsTest {
 
-import static org.hamcrest.Matchers.containsString;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThat;
+    private JenkinsRule j;
 
-@Category(SmokeTest.class)
-public class AboutJenkinsTest {
-    
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
-    
+    @BeforeEach
+    void setUp(JenkinsRule rule) {
+        j = rule;
+    }
+
     @Test
     @Issue("SECURITY-771")
-    public void onlyAdminCanReadAbout() throws Exception {
+    void onlyAdminOrManageOrSystemReadCanReadAbout() throws Exception {
         final String ADMIN = "admin";
         final String USER = "user";
-        
+        final String MANAGER = "manager";
+        final String READONLY = "readonly";
+        final String MANAGER_READONLY = "manager-readonly";
+
         j.jenkins.setSecurityRealm(j.createDummySecurityRealm());
         j.jenkins.setAuthorizationStrategy(new MockAuthorizationStrategy()
+                // full access
                 .grant(Jenkins.ADMINISTER).everywhere().to(ADMIN)
+
+                // Read access
                 .grant(Jenkins.READ).everywhere().to(USER)
+
+                // Read and Manage
+                .grant(Jenkins.READ).everywhere().to(MANAGER)
+                .grant(Jenkins.MANAGE).everywhere().to(MANAGER)
+
+                // Read and System read
+                .grant(Jenkins.READ).everywhere().to(READONLY)
+                .grant(Jenkins.SYSTEM_READ).everywhere().to(READONLY)
+
+                // Read, Manage and System read
+                .grant(Jenkins.READ).everywhere().to(MANAGER_READONLY)
+                .grant(Jenkins.MANAGE).everywhere().to(MANAGER_READONLY)
+                .grant(Jenkins.SYSTEM_READ).everywhere().to(MANAGER_READONLY)
         );
-        
+
         JenkinsRule.WebClient wc = j.createWebClient()
                 .withThrowExceptionOnFailingStatusCode(false);
-        
+
         { // user cannot see it
             wc.login(USER);
             HtmlPage page = wc.goTo("about/");
             assertEquals(HttpURLConnection.HTTP_FORBIDDEN, page.getWebResponse().getStatusCode());
         }
-        
+
         { // admin can access it
             wc.login(ADMIN);
             HtmlPage page = wc.goTo("about/");
             assertEquals(HttpURLConnection.HTTP_OK, page.getWebResponse().getStatusCode());
-            assertThat(page.getWebResponse().getContentAsString(), containsString("Mavenized dependencies"));
+            assertThat(page.querySelector("body").asXml(), containsString("Mavenized dependencies"));
+        }
+
+        { // manager can access it
+            wc.login(MANAGER);
+            HtmlPage page = wc.goTo("about/");
+            assertEquals(HttpURLConnection.HTTP_OK, page.getWebResponse().getStatusCode());
+        }
+
+        { // readonly can access it
+            wc.login(READONLY);
+            HtmlPage page = wc.goTo("about/");
+            assertEquals(HttpURLConnection.HTTP_OK, page.getWebResponse().getStatusCode());
+        }
+
+        { // manager-readonly can access it
+            wc.login(MANAGER_READONLY);
+            HtmlPage page = wc.goTo("about/");
+            assertEquals(HttpURLConnection.HTTP_OK, page.getWebResponse().getStatusCode());
         }
     }
-    
+
 }

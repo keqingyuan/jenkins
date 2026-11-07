@@ -24,8 +24,13 @@
 
 package jenkins.management;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.Extension;
 import hudson.model.ManagementLink;
+import hudson.model.UpdateCenter;
+import hudson.security.Permission;
+import jenkins.model.Jenkins;
+import jenkins.model.experimentalflags.NewManageJenkinsUserExperimentalFlag;
 import org.jenkinsci.Symbol;
 
 /**
@@ -36,9 +41,16 @@ public class PluginsLink extends ManagementLink {
 
     @Override
     public String getIconFileName() {
-        return "plugin.png";
+        var flagEnabled = new NewManageJenkinsUserExperimentalFlag().getFlagValue();
+
+        if (flagEnabled) {
+            return null;
+        }
+
+        return "plugin.svg";
     }
 
+    @Override
     public String getDisplayName() {
         return Messages.PluginsLink_DisplayName();
     }
@@ -51,5 +63,23 @@ public class PluginsLink extends ManagementLink {
     @Override
     public String getUrlName() {
         return "pluginManager";
+    }
+
+    @NonNull
+    @Override
+    public Permission getRequiredPermission() {
+        return Jenkins.SYSTEM_READ;
+    }
+
+    @NonNull
+    @Override
+    public Category getCategory() {
+        return Category.CONFIGURATION;
+    }
+
+    @Override
+    public Badge getBadge() {
+        final UpdateCenter updateCenter = Jenkins.get().getUpdateCenter();
+        return updateCenter.getBadge();
     }
 }

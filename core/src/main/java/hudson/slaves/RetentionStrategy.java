@@ -21,25 +21,29 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package hudson.slaves;
 
-import hudson.ExtensionPoint;
-import hudson.Util;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.DescriptorExtensionList;
 import hudson.Extension;
-import hudson.model.*;
+import hudson.ExtensionPoint;
+import hudson.Util;
+import hudson.model.Computer;
+import hudson.model.Describable;
+import hudson.model.Descriptor;
+import hudson.model.Node;
+import hudson.model.Queue;
 import hudson.util.DescriptorList;
 import java.util.Collections;
 import java.util.HashMap;
-import jenkins.model.Jenkins;
-import org.jenkinsci.Symbol;
-import org.kohsuke.stapler.DataBoundConstructor;
-
-import javax.annotation.concurrent.GuardedBy;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import javax.annotation.Nonnull;
+import jenkins.model.Jenkins;
+import net.jcip.annotations.GuardedBy;
+import org.jenkinsci.Symbol;
+import org.kohsuke.stapler.DataBoundConstructor;
 
 /**
  * Controls when to take {@link Computer} offline, bring it back online, or even to destroy it.
@@ -47,25 +51,25 @@ import javax.annotation.Nonnull;
  * @author Stephen Connolly
  * @author Kohsuke Kawaguchi
  */
-public abstract class RetentionStrategy<T extends Computer> extends AbstractDescribableImpl<RetentionStrategy<?>> implements ExtensionPoint {
+public abstract class RetentionStrategy<T extends Computer> implements Describable<RetentionStrategy<?>>, ExtensionPoint {
 
     /**
-     * This method will be called periodically to allow this strategy to decide what to do with it's owning agent.
+     * This method will be called periodically to allow this strategy to decide what to do with its owning agent.
      *
      * @param c {@link Computer} for which this strategy is assigned. This computer may be online or offline.
      *          This object also exposes a bunch of properties that the callee can use to decide what action to take.
      * @return The number of minutes after which the strategy would like to be checked again. The strategy may be
-     *         rechecked earlier or later that this!
+     *         rechecked earlier or later than this!
      */
     @GuardedBy("hudson.model.Queue.lock")
-    public abstract long check(@Nonnull T c);
+    public abstract long check(@NonNull T c);
 
     /**
-     * This method is called to determine whether manual launching of the agent is allowed at this point in time.
+     * This method is called to determine whether manual launching of the agent is allowed right now.
      * @param c {@link Computer} for which this strategy is assigned. This computer may be online or offline.
      *          This object also exposes a bunch of properties that the callee can use to decide if manual launching is
-     * allowed at this time.
-     * @return {@code true} if manual launching of the agent is allowed at this point in time.
+     *          allowed.
+     * @return {@code true} if manual launching of the agent is allowed right now.
      */
     public boolean isManualLaunchAllowed(T c) {
         return true;
@@ -87,7 +91,7 @@ public abstract class RetentionStrategy<T extends Computer> extends AbstractDesc
 
     /**
      * Called when a new {@link Computer} object is introduced (such as when Hudson started, or when
-     * a new agent is added.)
+     * a new agent is added).
      *
      * <p>
      * The default implementation of this method delegates to {@link #check(Computer)},
@@ -96,14 +100,14 @@ public abstract class RetentionStrategy<T extends Computer> extends AbstractDesc
      * @param c Computer instance
      * @since 1.275
      */
-    public void start(final @Nonnull T c) {
-        Queue.withLock((Runnable) () -> check(c));
+    public void start(final @NonNull T c) {
+        Queue.runWithLock(() -> check(c));
     }
 
     /**
      * Returns all the registered {@link RetentionStrategy} descriptors.
      */
-    public static DescriptorExtensionList<RetentionStrategy<?>,Descriptor<RetentionStrategy<?>>> all() {
+    public static DescriptorExtensionList<RetentionStrategy<?>, Descriptor<RetentionStrategy<?>>> all() {
         return (DescriptorExtensionList) Jenkins.get().getDescriptorList(RetentionStrategy.class);
     }
 
@@ -113,30 +117,36 @@ public abstract class RetentionStrategy<T extends Computer> extends AbstractDesc
      *      Use {@link #all()} for read access, and {@link Extension} for registration.
      */
     @Deprecated
-    public static final DescriptorList<RetentionStrategy<?>> LIST = new DescriptorList<RetentionStrategy<?>>((Class)RetentionStrategy.class);
+    public static final DescriptorList<RetentionStrategy<?>> LIST = new DescriptorList<RetentionStrategy<?>>((Class) RetentionStrategy.class);
 
     /**
      * Dummy instance that doesn't do any attempt to retention.
      */
     public static final RetentionStrategy<Computer> NOOP = new NoOp();
+
     private static final class NoOp extends RetentionStrategy<Computer> {
         @GuardedBy("hudson.model.Queue.lock")
         @Override
         public long check(Computer c) {
             return 60;
         }
+
         @Override
         public void start(Computer c) {
             c.connect(false);
         }
+
         @Override
         public Descriptor<RetentionStrategy<?>> getDescriptor() {
             return DESCRIPTOR;
         }
+
         private Object readResolve() {
             return NOOP;
         }
+
         private static final DescriptorImpl DESCRIPTOR = new DescriptorImpl();
+
         private static final class DescriptorImpl extends Descriptor<RetentionStrategy<?>> {}
     }
 
@@ -156,15 +166,18 @@ public abstract class RetentionStrategy<T extends Computer> extends AbstractDesc
         public Always() {
         }
 
+        @Override
         @GuardedBy("hudson.model.Queue.lock")
         public long check(SlaveComputer c) {
             if (c.isOffline() && !c.isConnecting() && c.isLaunchSupported())
                 c.tryReconnect();
-            return 1;
+            return 0;
         }
 
-        @Extension(ordinal=100) @Symbol("always")
+        @Extension(ordinal = 100) @Symbol("always")
         public static class DescriptorImpl extends Descriptor<RetentionStrategy<?>> {
+            @NonNull
+            @Override
             public String getDisplayName() {
                 return Messages.RetentionStrategy_Always_displayName();
             }
@@ -220,7 +233,7 @@ public abstract class RetentionStrategy<T extends Computer> extends AbstractDesc
                 for (Computer o : Jenkins.get().getComputers()) {
                     if ((o.isOnline() || o.isConnecting()) && o.isPartiallyIdle() && o.isAcceptingTasks()) {
                         final int idleExecutors = o.countIdle();
-                        if (idleExecutors>0)
+                        if (idleExecutors > 0)
                             availableComputers.put(o, idleExecutors);
                     }
                 }
@@ -259,6 +272,8 @@ public abstract class RetentionStrategy<T extends Computer> extends AbstractDesc
                     logger.log(Level.INFO, "Launching computer {0} as it has been in demand for {1}",
                             new Object[]{c.getName(), Util.getTimeSpanString(demandMilliseconds)});
                     c.connect(false);
+                } else if (c.getOfflineCause() == null) {
+                    c.setOfflineCause(new OfflineCause.IdleOfflineCause());
                 }
             } else if (c.isIdle()) {
                 final long idleMilliseconds = System.currentTimeMillis() - c.getIdleStartMilliseconds();
@@ -272,11 +287,12 @@ public abstract class RetentionStrategy<T extends Computer> extends AbstractDesc
                     return TimeUnit.MILLISECONDS.toMinutes(TimeUnit.MINUTES.toMillis(idleDelay) - idleMilliseconds);
                 }
             }
-            return 1;
+            return 0;
         }
 
         @Extension @Symbol("demand")
         public static class DescriptorImpl extends Descriptor<RetentionStrategy<?>> {
+            @NonNull
             @Override
             public String getDisplayName() {
                 return Messages.RetentionStrategy_Demand_displayName();

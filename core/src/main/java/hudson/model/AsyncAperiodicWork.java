@@ -21,10 +21,12 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package hudson.model;
 
 import hudson.Functions;
 import hudson.security.ACL;
+import hudson.security.ACLContext;
 import hudson.util.StreamTaskListener;
 import java.io.File;
 import java.io.IOException;
@@ -36,8 +38,8 @@ import jenkins.util.SystemProperties;
 
 /**
  * {@link AperiodicWork} that takes a long time to run. Similar to {@link AsyncPeriodicWork}, see {@link AsyncPeriodicWork} for
- * details and {@link AperiodicWork} for differences between {@link AperiodicWork} and {@link PeriodicWork}. 
- * 
+ * details and {@link AperiodicWork} for differences between {@link AperiodicWork} and {@link PeriodicWork}.
+ *
  * @author vjuranek
  * @since 1.410
  */
@@ -62,7 +64,7 @@ public abstract class AsyncAperiodicWork extends AperiodicWork {
      * @since 1.651
      */
     private static final long LOG_ROTATE_SIZE = SystemProperties.getLong(AsyncAperiodicWork.class.getName() + ".logRotateSize",
-            -1L);
+        10485760L);
     /**
      * The number of milliseconds (since startup or previous rotation) after which to try and rotate the log file.
      *
@@ -93,8 +95,8 @@ public abstract class AsyncAperiodicWork extends AperiodicWork {
     protected AsyncAperiodicWork(String name) {
         this.name = name;
         this.logRotateMillis = TimeUnit.MINUTES.toMillis(
-                SystemProperties.getLong(getClass().getName()+".logRotateMinutes", LOG_ROTATE_MINUTES));
-        this.logRotateSize = SystemProperties.getLong(getClass().getName() +".logRotateSize", LOG_ROTATE_SIZE);
+                SystemProperties.getLong(getClass().getName() + ".logRotateMinutes", LOG_ROTATE_MINUTES));
+        this.logRotateSize = SystemProperties.getLong(getClass().getName() + ".logRotateSize", LOG_ROTATE_SIZE);
     }
 
     /**
@@ -103,42 +105,33 @@ public abstract class AsyncAperiodicWork extends AperiodicWork {
     @Override
     public final void doAperiodicRun() {
         try {
-            if(thread!=null && thread.isAlive()) {
+            if (thread != null && thread.isAlive()) {
                 logger.log(getSlowLoggingLevel(), "{0} thread is still running. Execution aborted.", name);
                 return;
             }
-            thread = new Thread(new Runnable() {
-                public void run() {
-                    logger.log(getNormalLoggingLevel(), "Started {0}", name);
-                    long startTime = System.currentTimeMillis();
-                    long stopTime;
+            thread = new Thread(() -> {
+                logger.log(Level.FINE, "Started {0}", name);
+                long startTime = System.currentTimeMillis();
+                long stopTime;
 
-                    StreamTaskListener l = createListener();
-                    try {
-                        l.getLogger().printf("Started at %tc%n", new Date(startTime));
-                        ACL.impersonate(ACL.SYSTEM);
-
-                        execute(l);
-                    } catch (IOException e) {
-                        Functions.printStackTrace(e, l.fatalError(e.getMessage()));
-                    } catch (InterruptedException e) {
-                        Functions.printStackTrace(e, l.fatalError("aborted"));
-                    } finally {
-                        stopTime = System.currentTimeMillis();
-                        try {
-                            l.getLogger().printf("Finished at %tc. %dms%n", new Date(stopTime), stopTime - startTime);
-                        } finally {
-                            l.closeQuietly();
-                        }
-                    }
-
-                    logger.log(getNormalLoggingLevel(), "Finished {0}. {1,number} ms",
-                            new Object[]{name, stopTime - startTime});
+                AsyncPeriodicWork.LazyTaskListener l = new AsyncPeriodicWork.LazyTaskListener(this::createListener, String.format("Started at %tc", new Date(startTime)));
+                try (ACLContext ctx = ACL.as2(ACL.SYSTEM2)) {
+                    execute(l);
+                } catch (IOException e) {
+                    Functions.printStackTrace(e, l.fatalError(e.getMessage()));
+                } catch (InterruptedException e) {
+                    Functions.printStackTrace(e, l.fatalError("aborted"));
+                } finally {
+                    stopTime = System.currentTimeMillis();
+                    l.close(String.format("Finished at %tc. %dms", new Date(stopTime), stopTime - startTime));
                 }
-            },name+" thread");
-            thread.start(); 
+
+                logger.log(Level.FINE, "Finished {0}. {1,number} ms",
+                        new Object[]{name, stopTime - startTime});
+            }, name + " thread");
+            thread.start();
         } catch (Throwable t) {
-            logger.log(Level.SEVERE, name+" thread failed with error", t);
+            logger.log(Level.SEVERE, name + " thread failed with error", t);
         }
     }
 
@@ -150,7 +143,7 @@ public abstract class AsyncAperiodicWork extends AperiodicWork {
             }
         }
         if (f.isFile()) {
-            if ((lastRotateMillis + logRotateMillis < System.currentTimeMillis())
+            if (lastRotateMillis + logRotateMillis < System.currentTimeMillis()
                     || (logRotateSize > 0 && f.length() > logRotateSize)) {
                 lastRotateMillis = System.currentTimeMillis();
                 File prev = null;
@@ -175,7 +168,7 @@ public abstract class AsyncAperiodicWork extends AperiodicWork {
         } else {
             lastRotateMillis = System.currentTimeMillis();
             // migrate old log files the first time we start-up
-            File oldFile = new File(Jenkins.getActiveInstance().getRootDir(), f.getName());
+            File oldFile = new File(Jenkins.get().getRootDir(), f.getName());
             if (oldFile.isFile()) {
                 File newFile = new File(f.getParentFile(), f.getName() + ".1");
                 if (!newFile.isFile()) {

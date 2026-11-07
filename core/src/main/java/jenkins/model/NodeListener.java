@@ -21,16 +21,18 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package jenkins.model;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.ExtensionList;
 import hudson.ExtensionPoint;
 import hudson.model.Node;
-
-import javax.annotation.Nonnull;
 import java.util.List;
-import java.util.logging.Level;
 import java.util.logging.Logger;
+import jenkins.util.Listeners;
+import org.kohsuke.accmod.Restricted;
+import org.kohsuke.accmod.restrictions.Beta;
 
 /**
  * Listen to {@link Node} CRUD operations.
@@ -43,33 +45,37 @@ public abstract class NodeListener implements ExtensionPoint {
     private static final Logger LOGGER = Logger.getLogger(NodeListener.class.getName());
 
     /**
+     * Allows to veto node loading.
+     * @param node the node being loaded. Not yet attached to Jenkins.
+     * @return false to veto node loading.
+     */
+    @Restricted(Beta.class)
+    protected boolean allowLoad(@NonNull Node node) {
+        return true;
+    }
+
+    /**
      * Node is being created.
      */
-    protected void onCreated(@Nonnull Node node) {}
+    protected void onCreated(@NonNull Node node) {}
 
     /**
      * Node is being updated.
      */
-    protected void onUpdated(@Nonnull Node oldOne, @Nonnull Node newOne) {}
+    protected void onUpdated(@NonNull Node oldOne, @NonNull Node newOne) {}
 
     /**
      * Node is being deleted.
      */
-    protected void onDeleted(@Nonnull Node node) {}
+    protected void onDeleted(@NonNull Node node) {}
 
     /**
      * Inform listeners that node is being created.
      *
      * @param node A node being created.
      */
-    public static void fireOnCreated(@Nonnull Node node) {
-        for (NodeListener nl: all()) {
-            try {
-                nl.onCreated(node);
-            } catch (Throwable ex) {
-                LOGGER.log(Level.WARNING, "Listener invocation failed", ex);
-            }
-        }
+    public static void fireOnCreated(@NonNull Node node) {
+        Listeners.notify(NodeListener.class, false, l -> l.onCreated(node));
     }
 
     /**
@@ -78,14 +84,8 @@ public abstract class NodeListener implements ExtensionPoint {
      * @param oldOne Old configuration.
      * @param newOne New Configuration.
      */
-    public static void fireOnUpdated(@Nonnull Node oldOne, @Nonnull Node newOne) {
-        for (NodeListener nl: all()) {
-            try {
-                nl.onUpdated(oldOne, newOne);
-            } catch (Throwable ex) {
-                LOGGER.log(Level.WARNING, "Listener invocation failed", ex);
-            }
-        }
+    public static void fireOnUpdated(@NonNull Node oldOne, @NonNull Node newOne) {
+        Listeners.notify(NodeListener.class, false, l -> l.onUpdated(oldOne, newOne));
     }
 
     /**
@@ -93,20 +93,14 @@ public abstract class NodeListener implements ExtensionPoint {
      *
      * @param node A node being removed.
      */
-    public static void fireOnDeleted(@Nonnull Node node) {
-        for (NodeListener nl: all()) {
-            try {
-                nl.onDeleted(node);
-            } catch (Throwable ex) {
-                LOGGER.log(Level.WARNING, "Listener invocation failed", ex);
-            }
-        }
+    public static void fireOnDeleted(@NonNull Node node) {
+        Listeners.notify(NodeListener.class, false, l -> l.onDeleted(node));
     }
 
     /**
      * Get all {@link NodeListener}s registered in Jenkins.
      */
-    public static @Nonnull List<NodeListener> all() {
+    public static @NonNull List<NodeListener> all() {
         return ExtensionList.lookup(NodeListener.class);
     }
 }

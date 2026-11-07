@@ -1,13 +1,40 @@
-[![][ButlerImage]][website] 
+<a href="https://jenkins.io">
+    <img width="400" src="https://www.jenkins.io/images/jenkins-logo-title-dark.svg" alt="Jenkins logo"> 
+</a>
+
+[![Jenkins Regular Release](https://img.shields.io/endpoint?url=https%3A%2F%2Fwww.jenkins.io%2Fchangelog%2Fbadge.json)](https://www.jenkins.io/changelog)
+[![Jenkins LTS Release](https://img.shields.io/endpoint?url=https%3A%2F%2Fwww.jenkins.io%2Fchangelog-stable%2Fbadge.json)](https://www.jenkins.io/changelog-stable)
+[![Docker Pulls](https://img.shields.io/docker/pulls/jenkins/jenkins.svg)](https://hub.docker.com/r/jenkins/jenkins/)
+[![CII Best Practices](https://bestpractices.coreinfrastructure.org/projects/3538/badge)](https://bestpractices.coreinfrastructure.org/projects/3538)
+[![Reproducible Builds](https://img.shields.io/badge/Reproducible_Builds-ok-green)](https://maven.apache.org/guides/mini/guide-reproducible-builds.html)
+[![Gitter](https://img.shields.io/gitter/room/jenkinsci/jenkins)](https://matrix.to/#/#jenkinsci_jenkins:gitter.im)
+
+---
+
+# Table of Contents
+
+- [About](#about)
+- [What to Use Jenkins for and When to Use It](#what-to-use-jenkins-for-and-when-to-use-it)
+- [Downloads](#downloads)
+- [Getting Started (Development)](#getting-started-development)
+- [Source](#source)
+- [Contributing to Jenkins](#contributing-to-jenkins)
+- [News and Website](#news-and-website)
+- [Governance](#governance)
+- [Adopters](#adopters)
+- [License](#license)
+
+---
 
 # About
-In a nutshell, Jenkins is the leading open-source automation server. 
-Built with Java, it provides over 1000 plugins to support automating virtually anything, 
-so that humans can actually spend their time doing things machines cannot.
+
+In a nutshell, Jenkins is the leading open-source automation server.
+Built with Java, it provides over 2,000 [plugins](https://plugins.jenkins.io/) to support automating virtually anything,
+so that humans can spend their time doing things machines cannot.
 
 # What to Use Jenkins for and When to Use It
 
-Use Jenkins to automate your development workflow so you can focus on work that matters most. Jenkins is commonly used for:
+Use Jenkins to automate your development workflow, so you can focus on work that matters most. Jenkins is commonly used for:
 
 - Building projects
 - Running tests to detect bugs and other issues as soon as they are introduced
@@ -17,46 +44,77 @@ Use Jenkins to automate your development workflow so you can focus on work that 
 Execute repetitive tasks, save time, and optimize your development process with Jenkins.
 
 # Downloads
-Non-source downloads such as WAR files and several Linux packages can be found on our [Mirrors].
+
+The Jenkins project provides official distributions as WAR files, Docker images, native packages and installers for platforms including several Linux distributions and Windows.
+See the [Downloads](https://www.jenkins.io/download) page for references.
+
+For all distributions Jenkins offers two release lines:
+
+- [Weekly](https://www.jenkins.io/download/weekly/) -
+  Frequent releases which include all new features, improvements, and bug fixes.
+- [Long-Term Support (LTS)](https://www.jenkins.io/download/lts/) -
+  Older release line which gets periodically updated via bug fix backports.
+
+Latest releases:
+
+[![Jenkins Regular Release](https://img.shields.io/endpoint?url=https%3A%2F%2Fwww.jenkins.io%2Fchangelog%2Fbadge.json)](https://www.jenkins.io/changelog)
+[![Jenkins LTS Release](https://img.shields.io/endpoint?url=https%3A%2F%2Fwww.jenkins.io%2Fchangelog-stable%2Fbadge.json)](https://www.jenkins.io/changelog-stable)
+
+# Getting Started (Development)
+
+For more information on setting up your development environment, contributing, and working with Jenkins internals, check the [contributing guide](CONTRIBUTING.md) and the [Jenkins Developer Documentation](https://www.jenkins.io/doc/developer/).
 
 # Source
-Our latest and greatest source of Jenkins can be found on [GitHub]. Fork us!
+
+Our latest and greatest source of Jenkins can be found on [GitHub](https://github.com/jenkinsci/jenkins). Fork us!
 
 # Contributing to Jenkins
-Follow the [contributing](CONTRIBUTING.md) file.
+
+New to open source or Jenkins? Here’s how to get started:
+
+- Read the [Contribution Guidelines](CONTRIBUTING.md)
+- Check our [good first issues](https://github.com/jenkinsci/jenkins/issues?q=is%3Aissue%20is%3Aopen%20label%3A%22good%20first%20issue%22)
+- Join our [Gitter chat](https://matrix.to/#/#jenkinsci_newcomer-contributors:gitter.im) for questions and help
+
+For more information about participating in the community and contributing to the Jenkins project,
+see [this page](https://www.jenkins.io/participate/).
+
+Documentation for Jenkins core maintainers is in the [maintainers guidelines](docs/MAINTAINERS.adoc).
 
 # News and Website
-All information about Jenkins can be found on our [website]. Follow us on Twitter [@jenkinsci].
+
+All information about Jenkins can be found on our [official website](https://www.jenkins.io/), including documentation, blog posts, plugin listings, community updates, and more.
+
+Stay up-to-date with the latest Jenkins news, tutorials, and release notes:
+
+- [Jenkins Blog](https://www.jenkins.io/blog/)
+- [Documentation](https://www.jenkins.io/doc/)
+- [Plugins Index](https://plugins.jenkins.io/)
+- [Events](https://www.jenkins.io/events/)
+
+Follow Jenkins on social media to stay connected with the community:
+
+- [Twitter / X](https://x.com/jenkinsci)
+- [YouTube](https://www.youtube.com/@jenkinscicd)
+- [LinkedIn](https://www.linkedin.com/company/jenkins-project/)
+
+# Governance
+
+The Jenkins project is governed by an open source community.
+To learn more about the governance structure, project leadership, and how decisions are made, visit the [Governance Page](https://www.jenkins.io/project/governance/).
+
+# Adopters
+
+Jenkins is trusted by **millions of users** and adopted by **thousands of companies** around the world — from startups to enterprises — to automate their software delivery pipelines.
+
+Explore the [Adopters Page](https://www.jenkins.io/project/adopters/) and https://stories.jenkins.io to see:
+
+- Companies and organizations using Jenkins
+- Success stories and case studies
+- How Jenkins is used in different industries
+
+> If your company uses Jenkins and you'd like to be featured, feel free to [submit your story](https://www.jenkins.io/project/adopters/contributing/#share-your-story)!
 
 # License
-Jenkins is **licensed** under the **[MIT License]**. The terms of the license are as follows:
 
-    The MIT License (MIT)
-
-    Copyright (c) 2004 Kohsuke Kawaguchi, Sun Microsystems Inc., and a number of other contributors. 
-
-    Permission is hereby granted, free of charge, to any person obtaining a copy
-    of this software and associated documentation files (the "Software"), to deal
-    in the Software without restriction, including without limitation the rights
-    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-    copies of the Software, and to permit persons to whom the Software is
-    furnished to do so, subject to the following conditions:
-
-    The above copyright notice and this permission notice shall be included in
-    all copies or substantial portions of the Software.
-
-    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-    THE SOFTWARE.
-
-[ButlerImage]: https://jenkins.io/sites/default/files/jenkins_logo.png
-[MIT License]: https://github.com/jenkinsci/jenkins/raw/master/LICENSE.txt
-[Mirrors]: http://mirrors.jenkins-ci.org
-[GitHub]: https://github.com/jenkinsci/jenkins
-[website]: https://jenkins.io/
-[@jenkinsci]: https://twitter.com/jenkinsci
-[wiki]: https://wiki.jenkins-ci.org
+Jenkins is **licensed** under the **[MIT License](LICENSE.txt)**.

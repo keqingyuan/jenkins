@@ -21,27 +21,24 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package jenkins.telemetry.impl;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.Extension;
-import hudson.PluginWrapper;
-import hudson.util.VersionNumber;
-import jenkins.model.Jenkins;
-import jenkins.telemetry.Telemetry;
-import net.sf.json.JSONObject;
-import org.kohsuke.MetaInfServices;
-import org.kohsuke.accmod.Restricted;
-import org.kohsuke.accmod.restrictions.NoExternalUse;
-import org.kohsuke.stapler.EvaluationTrace;
-import org.kohsuke.stapler.StaplerRequest;
-
-import javax.annotation.Nonnull;
 import java.time.LocalDate;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentSkipListSet;
+import jenkins.telemetry.Telemetry;
+import net.sf.json.JSONObject;
+import org.kohsuke.MetaInfServices;
+import org.kohsuke.accmod.Restricted;
+import org.kohsuke.accmod.restrictions.NoExternalUse;
+import org.kohsuke.stapler.EvaluationTrace;
+import org.kohsuke.stapler.StaplerRequest2;
 
 /**
  * Telemetry implementation gathering information about Stapler dispatch routes.
@@ -49,19 +46,19 @@ import java.util.concurrent.ConcurrentSkipListSet;
 @Extension
 @Restricted(NoExternalUse.class)
 public class StaplerDispatches extends Telemetry {
-    @Nonnull
+    @NonNull
     @Override
     public LocalDate getStart() {
         return LocalDate.of(2018, 10, 10);
     }
 
-    @Nonnull
+    @NonNull
     @Override
     public LocalDate getEnd() {
-        return LocalDate.of(2019, 2, 1);
+        return LocalDate.of(2019, 8, 1);
     }
 
-    @Nonnull
+    @NonNull
     @Override
     public String getDisplayName() {
         return "Stapler request handling";
@@ -69,7 +66,7 @@ public class StaplerDispatches extends Telemetry {
 
     @Override
     public JSONObject createContent() {
-        if (traces.size() == 0) {
+        if (traces.isEmpty()) {
             return null;
         }
         Map<String, Object> info = new TreeMap<>();
@@ -85,24 +82,11 @@ public class StaplerDispatches extends Telemetry {
         return currentTraces;
     }
 
-    private Object buildComponentInformation() {
-        Map<String, String> components = new TreeMap<>();
-        VersionNumber core = Jenkins.getVersion();
-        components.put("jenkins-core", core == null ? "" : core.toString());
-
-        for (PluginWrapper plugin : Jenkins.get().pluginManager.getPlugins()) {
-            if (plugin.isActive()) {
-                components.put(plugin.getShortName(), plugin.getVersion());
-            }
-        }
-        return components;
-    }
-
     @MetaInfServices
     public static class StaplerTrace extends EvaluationTrace.ApplicationTracer {
 
         @Override
-        protected void record(StaplerRequest staplerRequest, String s) {
+        protected void record(StaplerRequest2 staplerRequest, String s) {
             if (Telemetry.isDisabled()) {
                 // do not collect traces while usage statistics are disabled
                 return;

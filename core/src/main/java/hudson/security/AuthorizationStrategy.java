@@ -1,18 +1,18 @@
 /*
  * The MIT License
- * 
+ *
  * Copyright (c) 2004-2009, Sun Microsystems, Inc., Kohsuke Kawaguchi, Seiji Sogabe, Tom Huybrechts
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in
  * all copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -21,26 +21,33 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package hudson.security;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.DescriptorExtensionList;
 import hudson.Extension;
 import hudson.ExtensionPoint;
-import hudson.model.*;
+import hudson.model.AbstractItem;
+import hudson.model.AbstractProject;
+import hudson.model.Computer;
+import hudson.model.Describable;
+import hudson.model.Descriptor;
+import hudson.model.Job;
+import hudson.model.Node;
+import hudson.model.User;
+import hudson.model.View;
 import hudson.slaves.Cloud;
 import hudson.util.DescriptorList;
-
 import java.io.Serializable;
 import java.util.Collection;
 import java.util.Collections;
-import javax.annotation.Nonnull;
-
+import jenkins.model.IComputer;
 import jenkins.model.Jenkins;
 import jenkins.security.stapler.StaplerAccessibleType;
 import net.sf.json.JSONObject;
-
 import org.jenkinsci.Symbol;
-import org.kohsuke.stapler.StaplerRequest;
+import org.kohsuke.stapler.StaplerRequest2;
 
 /**
  * Controls authorization throughout Hudson.
@@ -57,32 +64,32 @@ import org.kohsuke.stapler.StaplerRequest;
  * The corresponding {@link Describable} instance will be asked to create a new {@link AuthorizationStrategy}
  * every time the system configuration is updated. Implementations that keep more state in ACL beyond
  * the system configuration should use {@link jenkins.model.Jenkins#getAuthorizationStrategy()} to talk to the current
- * instance to carry over the state. 
+ * instance to carry over the state.
  *
  * @author Kohsuke Kawaguchi
  * @see SecurityRealm
  */
 @StaplerAccessibleType
-public abstract class AuthorizationStrategy extends AbstractDescribableImpl<AuthorizationStrategy> implements ExtensionPoint {
+public abstract class AuthorizationStrategy implements Describable<AuthorizationStrategy>, ExtensionPoint {
     /**
      * Returns the instance of {@link ACL} where all the other {@link ACL} instances
      * for all the other model objects eventually delegate.
      * <p>
      * IOW, this ACL will have the ultimate say on the access control.
      */
-    public abstract @Nonnull ACL getRootACL();
+    public abstract @NonNull ACL getRootACL();
 
     /**
      * @deprecated since 1.277
      *      Override {@link #getACL(Job)} instead.
      */
     @Deprecated
-    public @Nonnull ACL getACL(@Nonnull AbstractProject<?,?> project) {
-    	return getACL((Job)project);
+    public @NonNull ACL getACL(@NonNull AbstractProject<?, ?> project) {
+        return getACL((Job) project);
     }
 
-    public @Nonnull ACL getACL(@Nonnull Job<?,?> project) {
-    	return getRootACL();
+    public @NonNull ACL getACL(@NonNull Job<?, ?> project) {
+        return getRootACL();
     }
 
     /**
@@ -95,19 +102,19 @@ public abstract class AuthorizationStrategy extends AbstractDescribableImpl<Auth
      *
      * @since 1.220
      */
-    public @Nonnull ACL getACL(final @Nonnull View item) {
-        return ACL.lambda((a, permission) -> {
+    public @NonNull ACL getACL(final @NonNull View item) {
+        return ACL.lambda2((a, permission) -> {
                 ACL base = item.getOwner().getACL();
 
-                boolean hasPermission = base.hasPermission(a, permission);
+                boolean hasPermission = base.hasPermission2(a, permission);
                 if (!hasPermission && permission == View.READ) {
-                    return base.hasPermission(a,View.CONFIGURE) || !item.getItems().isEmpty();
+                    return base.hasPermission2(a, View.CONFIGURE) || !item.getItems().isEmpty();
                 }
 
                 return hasPermission;
         });
     }
-    
+
     /**
      * Implementation can choose to provide different ACL for different items.
      * This can be used as a basis for more fine-grained access control.
@@ -117,7 +124,7 @@ public abstract class AuthorizationStrategy extends AbstractDescribableImpl<Auth
      *
      * @since 1.220
      */
-    public @Nonnull ACL getACL(@Nonnull AbstractItem item) {
+    public @NonNull ACL getACL(@NonNull AbstractItem item) {
         return getRootACL();
     }
 
@@ -130,7 +137,7 @@ public abstract class AuthorizationStrategy extends AbstractDescribableImpl<Auth
      *
      * @since 1.221
      */
-    public @Nonnull ACL getACL(@Nonnull User user) {
+    public @NonNull ACL getACL(@NonNull User user) {
         return getRootACL();
     }
 
@@ -143,8 +150,24 @@ public abstract class AuthorizationStrategy extends AbstractDescribableImpl<Auth
      *
      * @since 1.220
      */
-    public @Nonnull ACL getACL(@Nonnull Computer computer) {
+    public @NonNull ACL getACL(@NonNull Computer computer) {
         return getACL(computer.getNode());
+    }
+
+    /**
+     * Implementation can choose to provide different ACL for different computers.
+     * This can be used as a basis for more fine-grained access control.
+     * <p>
+     * Default implementation delegates to {@link #getACL(Computer)} if the computer is an instance of {@link Computer},
+     * otherwise it will fall back to {@link #getRootACL()}.
+     *
+     * @since 2.480
+     **/
+    public @NonNull ACL getACL(@NonNull IComputer computer) {
+        if (computer instanceof Computer c) {
+            return getACL(c);
+        }
+        return getRootACL();
     }
 
     /**
@@ -156,11 +179,11 @@ public abstract class AuthorizationStrategy extends AbstractDescribableImpl<Auth
      *
      * @since 1.252
      */
-    public @Nonnull ACL getACL(@Nonnull Cloud cloud) {
+    public @NonNull ACL getACL(@NonNull Cloud cloud) {
         return getRootACL();
     }
 
-    public @Nonnull ACL getACL(@Nonnull Node node) {
+    public @NonNull ACL getACL(@NonNull Node node) {
         return getRootACL();
     }
 
@@ -173,18 +196,18 @@ public abstract class AuthorizationStrategy extends AbstractDescribableImpl<Auth
      * <p>
      * If such enumeration is impossible, do the best to list as many as possible, then
      * return it. In the worst case, just return an empty list. Doing so would prevent
-     * users from using role names as group names (see HUDSON-2716 for such one such report.)
+     * users from using role names as group names (see JENKINS-2716 for such one such report.)
      *
      * @return
      *      never null.
      */
-    public abstract @Nonnull Collection<String> getGroups();
+    public abstract @NonNull Collection<String> getGroups();
 
     /**
      * Returns all the registered {@link AuthorizationStrategy} descriptors.
      */
-    public static @Nonnull DescriptorExtensionList<AuthorizationStrategy,Descriptor<AuthorizationStrategy>> all() {
-        return Jenkins.getInstance().<AuthorizationStrategy,Descriptor<AuthorizationStrategy>>getDescriptorList(AuthorizationStrategy.class);
+    public static @NonNull DescriptorExtensionList<AuthorizationStrategy, Descriptor<AuthorizationStrategy>> all() {
+        return Jenkins.get().getDescriptorList(AuthorizationStrategy.class);
     }
 
     /**
@@ -194,8 +217,8 @@ public abstract class AuthorizationStrategy extends AbstractDescribableImpl<Auth
      *      Use {@link #all()} for read access, and {@link Extension} for registration.
      */
     @Deprecated
-    public static final DescriptorList<AuthorizationStrategy> LIST = new DescriptorList<AuthorizationStrategy>(AuthorizationStrategy.class);
-    
+    public static final DescriptorList<AuthorizationStrategy> LIST = new DescriptorList<>(AuthorizationStrategy.class);
+
     /**
      * {@link AuthorizationStrategy} that implements the semantics
      * of unsecured Hudson where everyone has full control.
@@ -214,26 +237,27 @@ public abstract class AuthorizationStrategy extends AbstractDescribableImpl<Auth
         }
 
         @Override
-        public @Nonnull ACL getRootACL() {
+        public @NonNull ACL getRootACL() {
             return UNSECURED_ACL;
         }
 
         @Override
-        public @Nonnull Collection<String> getGroups() {
+        public @NonNull Collection<String> getGroups() {
             return Collections.emptySet();
         }
 
-        private static final ACL UNSECURED_ACL = ACL.lambda((a, p) -> true);
+        private static final ACL UNSECURED_ACL = ACL.lambda2((a, p) -> true);
 
         @Extension @Symbol("unsecured")
         public static final class DescriptorImpl extends Descriptor<AuthorizationStrategy> {
+            @NonNull
             @Override
             public String getDisplayName() {
                 return Messages.AuthorizationStrategy_DisplayName();
             }
 
             @Override
-            public @Nonnull AuthorizationStrategy newInstance(StaplerRequest req, JSONObject formData) throws FormException {
+            public @NonNull AuthorizationStrategy newInstance(StaplerRequest2 req, JSONObject formData) throws FormException {
                 return UNSECURED;
             }
         }

@@ -1,18 +1,18 @@
 /*
  * The MIT License
- * 
+ *
  * Copyright (c) 2004-2009, Sun Microsystems, Inc., Kohsuke Kawaguchi
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in
  * all copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -21,18 +21,18 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package hudson.util;
 
+import edu.umd.cs.findbugs.annotations.CheckForNull;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.model.Fingerprint;
 import hudson.model.FingerprintMap;
-
 import java.io.IOException;
 import java.lang.ref.SoftReference;
 import java.text.MessageFormat;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
-import javax.annotation.CheckForNull;
-import javax.annotation.Nonnull;
 
 /**
  * Convenient base class for implementing data storage.
@@ -55,7 +55,7 @@ import javax.annotation.Nonnull;
  * @author Kohsuke Kawaguchi
  * @see FingerprintMap
  */
-public abstract class KeyedDataStorage<T,P> {
+public abstract class KeyedDataStorage<T, P> {
     /**
      * The value is either {@code SoftReference<Fingerprint>} or {@link Loading}.
      *
@@ -63,7 +63,7 @@ public abstract class KeyedDataStorage<T,P> {
      * If it's {@link Loading}, then that indicates the fingerprint is being loaded.
      * The thread can wait on this object to be notified when the loading completes.
      */
-    private final ConcurrentHashMap<String,Object> core = new ConcurrentHashMap<String,Object>();
+    private final ConcurrentHashMap<String, Object> core = new ConcurrentHashMap<>();
 
     /**
      * Used in {@link KeyedDataStorage#core} to indicate that the loading of a fingerprint
@@ -86,7 +86,7 @@ public abstract class KeyedDataStorage<T,P> {
          */
         public synchronized @CheckForNull T get() {
             try {
-                while(!set)
+                while (!set)
                     wait();
                 return value;
             } catch (InterruptedException e) {
@@ -101,14 +101,14 @@ public abstract class KeyedDataStorage<T,P> {
      * Atomically gets the existing data object if any, or if it doesn't exist
      * {@link #create(String,Object) create} it and return it.
      *
-     * @return
-     *      Item with the specified {@code key}.
      * @param createParams
      *      Additional parameters needed to create a new data object. Can be null.
+     * @return
+     *      Item with the specified {@code key}.
      * @throws IOException Loading error
      */
-    public @Nonnull T getOrCreate(String key, P createParams) throws IOException {
-        return get(key,true,createParams);
+    public @NonNull T getOrCreate(String key, P createParams) throws IOException {
+        return get(key, true, createParams);
     }
 
     /**
@@ -118,7 +118,7 @@ public abstract class KeyedDataStorage<T,P> {
      * @throws IOException Loading error
      */
     public @CheckForNull T get(String key) throws IOException {
-        return get(key,false,null);
+        return get(key, false, null);
     }
 
     /**
@@ -126,31 +126,31 @@ public abstract class KeyedDataStorage<T,P> {
      * @return Item with the specified {@code key}
      * @throws IOException Loading error
      */
-    protected @CheckForNull T get(@Nonnull String key, boolean createIfNotExist, P createParams) throws IOException {
-        while(true) {
+    protected @CheckForNull T get(@NonNull String key, boolean createIfNotExist, P createParams) throws IOException {
+        while (true) {
             totalQuery.incrementAndGet();
             Object value = core.get(key);
 
-            if(value instanceof SoftReference) {
+            if (value instanceof SoftReference) {
                 SoftReference<T> wfp = (SoftReference<T>) value;
                 T t = wfp.get();
-                if(t!=null) {
+                if (t != null) {
                     cacheHit.incrementAndGet();
                     return t;  // found it
                 }
                 weakRefLost.incrementAndGet();
             }
-            if(value instanceof Loading) {
+            if (value instanceof Loading) {
                 // another thread is loading it. get the value from there.
-                T t = ((Loading<T>)value).get();
-                if(t!=null || !createIfNotExist)
+                T t = ((Loading<T>) value).get();
+                if (t != null || !createIfNotExist)
                     return t;   // found it (t!=null) or we are just 'get' (!createIfNotExist)
             }
 
             // the fingerprint doesn't seem to be loaded thus far, so let's load it now.
             // the care needs to be taken that other threads might be trying to do the same.
-            Loading<T> l = new Loading<T>();
-            if(value==null ? core.putIfAbsent(key,l)!=null : !core.replace(key,value,l)) {
+            Loading<T> l = new Loading<>();
+            if (value == null ? core.putIfAbsent(key, l) != null : !core.replace(key, value, l)) {
                 // the value has changed since then. another thread is attempting to do the same.
                 // go back to square 1 and try it again.
                 continue;
@@ -159,12 +159,12 @@ public abstract class KeyedDataStorage<T,P> {
             T t = null;
             try {
                 t = load(key);
-                if(t==null && createIfNotExist) {
-                    t = create(key,createParams);    // create the new data
-                    if(t==null)
+                if (t == null && createIfNotExist) {
+                    t = create(key, createParams);    // create the new data
+                    if (t == null)
                         throw new IllegalStateException("Bug in the derived class"); // bug in the derived classes
                 }
-            } catch(IOException e) {
+            } catch (IOException e) {
                 loadFailure.incrementAndGet();
                 throw e;
             } finally {
@@ -174,8 +174,8 @@ public abstract class KeyedDataStorage<T,P> {
             }
 
             // the map needs to be updated to reflect the result of loading
-            if(t!=null)
-                core.put(key,new SoftReference<T>(t));
+            if (t != null)
+                core.put(key, new SoftReference<>(t));
             else
                 core.remove(key);
 
@@ -219,7 +219,7 @@ public abstract class KeyedDataStorage<T,P> {
      *      {@link IOException} (or any other exception) and that will be
      *      propagated to the caller.
      */
-    protected abstract @Nonnull T create(@Nonnull String key, @Nonnull P createParams) throws IOException;
+    protected abstract @NonNull T create(@NonNull String key, @NonNull P createParams) throws IOException;
 
     public void resetPerformanceStats() {
         totalQuery.set(0);
@@ -236,10 +236,10 @@ public abstract class KeyedDataStorage<T,P> {
         int hit = cacheHit.get();
         int weakRef = weakRefLost.get();
         int failure = loadFailure.get();
-        int miss = total-hit-weakRef;
+        int miss = total - hit - weakRef;
 
         return MessageFormat.format("total={0} hit={1}% lostRef={2}% failure={3}% miss={4}%",
-                total,hit,weakRef,failure,miss);
+                total, hit, weakRef, failure, miss);
     }
 
     /**

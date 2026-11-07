@@ -13,17 +13,19 @@ but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 Lesser General Public License for more details.
  */
+
 package hudson.util.jna;
 
-import com.sun.jna.Structure;
 import com.sun.jna.Native;
-import com.sun.jna.WString;
 import com.sun.jna.Pointer;
-import com.sun.jna.win32.StdCallLibrary;
-import com.sun.jna.ptr.PointerByReference;
+import com.sun.jna.Structure;
+import com.sun.jna.WString;
 import com.sun.jna.ptr.IntByReference;
+import com.sun.jna.ptr.PointerByReference;
+import com.sun.jna.win32.StdCallLibrary;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -32,13 +34,13 @@ import java.util.List;
  */
 @SuppressWarnings("UnusedReturnValue")
 public interface Advapi32  extends StdCallLibrary {
-  Advapi32 INSTANCE = (Advapi32) Native.loadLibrary("Advapi32", Advapi32.class, Options.UNICODE_OPTIONS);
+  Advapi32 INSTANCE = (Advapi32) Native.load("Advapi32", Advapi32.class, Options.UNICODE_OPTIONS);
 
     /**
      * Retrieves the name of the user associated with the current thread.
      *
      * <p>
-     * See http://msdn.microsoft.com/en-us/library/ms724432(VS.85).aspx
+     * See <a href="https://docs.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getusernamea">GetUserNameA function (winbase.h)</a>
      */
     boolean GetUserName(char[] buffer, IntByReference lpnSize);
 
@@ -352,7 +354,7 @@ typedef struct _SERVICE_TABLE_ENTRY {
 
     @Override
     protected List getFieldOrder() {
-        return Arrays.asList(new String[] {"lpServiceName", "lpServiceProc"});
+        return Arrays.asList("lpServiceName", "lpServiceProc");
     }
   }
 
@@ -360,7 +362,7 @@ typedef struct _SERVICE_TABLE_ENTRY {
 
     @Override
     protected List getFieldOrder() {
-        return Arrays.asList(new String[] {});
+        return Collections.emptyList();
     }
   }
 

@@ -1,18 +1,18 @@
 /*
  * The MIT License
- * 
+ *
  * Copyright (c) 2004-2009, Sun Microsystems, Inc., Kohsuke Kawaguchi
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in
  * all copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -21,21 +21,20 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package hudson.scheduler;
 
 import antlr.ANTLRException;
+import edu.umd.cs.findbugs.annotations.CheckForNull;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import java.util.Calendar;
-import java.util.TimeZone;
 import java.util.Collection;
+import java.util.TimeZone;
 import java.util.Vector;
-import javax.annotation.CheckForNull;
-import javax.annotation.Nonnull;
-
-import org.kohsuke.accmod.Restricted;
-import org.kohsuke.accmod.restrictions.NoExternalUse;
-
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import org.kohsuke.accmod.Restricted;
+import org.kohsuke.accmod.restrictions.NoExternalUse;
 
 /**
  * {@link CronTab} list (logically OR-ed).
@@ -54,7 +53,7 @@ public final class CronTabList {
      */
     public synchronized boolean check(Calendar cal) {
         for (CronTab tab : tabs) {
-            if(tab.check(cal))
+            if (tab.check(cal))
                 return true;
         }
         return false;
@@ -72,7 +71,7 @@ public final class CronTabList {
     public String checkSanity() {
         for (CronTab tab : tabs) {
             String s = tab.checkSanity();
-            if(s!=null)     return s;
+            if (s != null)     return s;
         }
         return null;
     }
@@ -92,11 +91,19 @@ public final class CronTabList {
         return null;
     }
 
-    public static CronTabList create(@Nonnull String format) throws ANTLRException {
-        return create(format,null);
+    /**
+     * @param format the crontab entry to be parsed
+     * @throws IllegalArgumentException if the crontab entry cannot be parsed
+     */
+    public static CronTabList create(@NonNull String format) {
+        return create(format, null);
     }
 
-    public static CronTabList create(@Nonnull String format, Hash hash) throws ANTLRException {
+    /**
+     * @param format the crontab entry to be parsed
+     * @throws IllegalArgumentException if the crontab entry cannot be parsed
+     */
+    public static CronTabList create(@NonNull String format, Hash hash) {
         Vector<CronTab> r = new Vector<>();
         int lineNumber = 0;
         String timezone = null;
@@ -104,26 +111,27 @@ public final class CronTabList {
         for (String line : format.split("\\r?\\n")) {
             lineNumber++;
             line = line.trim();
-            
-            if(lineNumber == 1 && line.startsWith("TZ=")) {
-                timezone = getValidTimezone(line.replace("TZ=",""));
-                if(timezone != null) {
+
+            if (lineNumber == 1 && line.startsWith("TZ=")) {
+                final String timezoneString = line.replace("TZ=", "");
+                timezone = getValidTimezone(timezoneString);
+                if (timezone != null) {
                     LOGGER.log(Level.CONFIG, "CRON with timezone {0}", timezone);
                 } else {
-                    throw new ANTLRException("Invalid or unsupported timezone '" + timezone + "'");
+                    throw new ANTLRException("Invalid or unsupported timezone '" + timezoneString + "'");
                 }
                 continue;
             }
 
-            if(line.length()==0 || line.startsWith("#"))
+            if (line.isEmpty() || line.startsWith("#"))
                 continue;   // ignorable line
             try {
-                r.add(new CronTab(line,lineNumber,hash,timezone));
-            } catch (ANTLRException e) {
-                throw new ANTLRException(Messages.CronTabList_InvalidInput(line,e.toString()),e);
+                r.add(new CronTab(line, lineNumber, hash, timezone));
+            } catch (IllegalArgumentException e) {
+                throw new ANTLRException(Messages.CronTabList_InvalidInput(line, e.getMessage()), e);
             }
         }
-        
+
         return new CronTabList(r);
     }
 
@@ -150,6 +158,6 @@ public final class CronTabList {
         }
         return nearest;
     }
-    
+
     private static final Logger LOGGER = Logger.getLogger(CronTabList.class.getName());
 }

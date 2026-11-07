@@ -21,73 +21,108 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package hudson.util;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
-import static org.hamcrest.Matchers.equalTo;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assume.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+
 import hudson.Functions;
 import hudson.Launcher.LocalLauncher;
 import hudson.Launcher.RemoteLauncher;
 import hudson.Proc;
 import hudson.model.Slave;
-
-import org.apache.tools.ant.util.JavaEnvUtils;
-import org.junit.Rule;
-import org.junit.Test;
-import org.jvnet.hudson.test.Email;
-import org.jvnet.hudson.test.JenkinsRule;
-
-import com.google.common.base.Joiner;
-
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.StringWriter;
-import java.net.URL;
+import java.nio.charset.Charset;
+import java.util.logging.Level;
+import jenkins.util.SystemProperties;
+import org.apache.tools.ant.util.JavaEnvUtils;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.jvnet.hudson.test.Email;
+import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.LogRecorder;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
 /**
  * @author Kohsuke Kawaguchi
  */
-public class ArgumentListBuilder2Test {
+@WithJenkins
+class ArgumentListBuilder2Test {
 
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
+    private final LogRecorder logging = new LogRecorder().
+        record(StreamTaskListener.class, Level.FINE).
+        record(SystemProperties.class, Level.FINE);
+
+    private JenkinsRule j;
+
+    @BeforeEach
+    void setUp(JenkinsRule rule) {
+        j = rule;
+    }
 
     /**
      * Makes sure {@link RemoteLauncher} properly masks arguments.
      */
     @Test
     @Email("http://n4.nabble.com/Password-masking-when-running-commands-on-a-slave-tp1753033p1753033.html")
-    public void slaveMask() throws Exception {
+    void slaveMask() throws Exception {
         ArgumentListBuilder args = new ArgumentListBuilder();
         args.add("java");
         args.addMasked("-version");
 
-        Slave s = j.createSlave();
-        s.toComputer().connect(false).get();
+        Slave s = j.createOnlineSlave();
+        j.showAgentLogs(s, logging);
 
         StringWriter out = new StringWriter();
-        assertEquals(0,s.createLauncher(new StreamTaskListener(out)).launch().cmds(args).join());
-        System.out.println(out);
-        assertTrue(out.toString().contains("$ java ********"));
+        assertEquals(0, s.createLauncher(new StreamTaskListener(out)).launch().cmds(args).join());
+        assertThat(out.toString(), containsString("$ java ********"));
     }
 
     @Test
-    public void ensureArgumentsArePassedViaCmdExeUnmodified() throws Exception {
+    void ensureArgumentsArePassedViaCmdExeUnmodified() throws Exception {
         assumeTrue(Functions.isWindows());
 
         String[] specials = new String[] {
-                "~", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")",
-                "_", "+", "{", "}", "[", "]", ":", ";", "\"", "'", "\\", "|",
-                "<", ">", ",", ".", "/", "?", " "
+                "~",
+                "!",
+                "@",
+                "#",
+                "$",
+                "%",
+                "^",
+                "&",
+                "*",
+                "(",
+                ")",
+                "_",
+                "+",
+                "{",
+                "}",
+                "[",
+                "]",
+                ":",
+                ";",
+                "\"",
+                "'",
+                "\\",
+                "|",
+                "<",
+                ">",
+                ",",
+                ".",
+                "/",
+                "?",
+                " ",
         };
 
         String out = echoArgs(specials);
 
-        String expected = String.format("%n%s", Joiner.on(" ").join(specials));
+        String expected = String.format("%n%s", String.join(" ", specials));
         assertThat(out, containsString(expected));
     }
 
@@ -104,7 +139,7 @@ public class ArgumentListBuilder2Test {
                 .toWindowsCommand();
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
-        final StreamTaskListener listener = new StreamTaskListener(out);
+        final StreamTaskListener listener = new StreamTaskListener(out, Charset.defaultCharset());
         Proc p = new LocalLauncher(listener)
                 .launch()
                 .stderr(System.err)
@@ -115,7 +150,7 @@ public class ArgumentListBuilder2Test {
         int code = p.join();
         listener.close();
 
-        assumeThat("Failed to run " + args, code, equalTo(0));
-        return out.toString();
+        assertEquals(0, code, "Failed to run " + args);
+        return out.toString(Charset.defaultCharset());
     }
 }

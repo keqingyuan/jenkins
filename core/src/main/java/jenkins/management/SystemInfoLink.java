@@ -24,8 +24,11 @@
 
 package jenkins.management;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.Extension;
 import hudson.model.ManagementLink;
+import hudson.security.Permission;
+import jenkins.model.Jenkins;
 import org.jenkinsci.Symbol;
 
 /**
@@ -36,9 +39,10 @@ public class SystemInfoLink extends ManagementLink {
 
     @Override
     public String getIconFileName() {
-        return "computer.png";
+        return "symbol-server";
     }
 
+    @Override
     public String getDisplayName() {
         return Messages.SystemInfoLink_DisplayName();
     }
@@ -48,8 +52,26 @@ public class SystemInfoLink extends ManagementLink {
         return Messages.SystemInfoLink_Description();
     }
 
+    @NonNull
+    @Override
+    public Permission getRequiredPermission() {
+        //This link is displayed to any user with permission to access the management menu
+        return Jenkins.READ;
+    }
+
+    @Override
+    public boolean hasRequiredPermission() {
+        return Jenkins.get().hasAnyPermission(Jenkins.MANAGE_AND_SYSTEM_READ);
+    }
+
     @Override
     public String getUrlName() {
         return "systemInfo";
+    }
+
+    @NonNull
+    @Override
+    public Category getCategory() {
+        return Category.STATUS;
     }
 }

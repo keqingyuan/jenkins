@@ -1,18 +1,18 @@
 /*
  * The MIT License
- * 
+ *
  * Copyright (c) 2004-2009, Sun Microsystems, Inc., Kohsuke Kawaguchi
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in
  * all copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -21,30 +21,49 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package hudson.slaves;
 
-import hudson.ExtensionPoint;
-import hudson.Extension;
+import edu.umd.cs.findbugs.annotations.CheckForNull;
+import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import hudson.DescriptorExtensionList;
+import hudson.Extension;
+import hudson.ExtensionPoint;
+import hudson.Util;
+import hudson.init.InitMilestone;
+import hudson.init.Initializer;
 import hudson.model.Actionable;
 import hudson.model.Computer;
-import hudson.model.Slave;
-import hudson.security.PermissionScope;
-import hudson.slaves.NodeProvisioner.PlannedNode;
 import hudson.model.Describable;
-import jenkins.model.Jenkins;
-import hudson.model.Node;
-import hudson.model.Label;
 import hudson.model.Descriptor;
+import hudson.model.Label;
+import hudson.model.Node;
+import hudson.model.Slave;
 import hudson.security.ACL;
 import hudson.security.AccessControlled;
 import hudson.security.Permission;
+import hudson.security.PermissionScope;
+import hudson.slaves.NodeProvisioner.PlannedNode;
 import hudson.util.DescriptorList;
-import org.kohsuke.stapler.DataBoundConstructor;
-
-import javax.annotation.Nonnull;
+import hudson.util.FormApply;
+import jakarta.servlet.ServletException;
+import java.io.IOException;
 import java.util.Collection;
+import java.util.Objects;
 import java.util.concurrent.Future;
+import jenkins.model.Jenkins;
+import net.sf.json.JSONObject;
+import org.kohsuke.accmod.Restricted;
+import org.kohsuke.accmod.restrictions.DoNotUse;
+import org.kohsuke.stapler.DataBoundConstructor;
+import org.kohsuke.stapler.HttpRedirect;
+import org.kohsuke.stapler.HttpResponse;
+import org.kohsuke.stapler.StaplerRequest;
+import org.kohsuke.stapler.StaplerRequest2;
+import org.kohsuke.stapler.StaplerResponse2;
+import org.kohsuke.stapler.interceptor.RequirePOST;
+import org.kohsuke.stapler.verb.POST;
 
 /**
  * Creates {@link Node}s to dynamically expand/shrink the agents attached to Hudson.
@@ -96,12 +115,20 @@ public abstract class Cloud extends Actionable implements ExtensionPoint, Descri
      * This is expected to be short ID-like string that does not contain any character unsafe as variable name or
      * URL path token.
      */
-    public final String name;
+    public String name;
 
     protected Cloud(String name) {
-        this.name = name;
+        this.name = validateNotEmpty(name);
     }
 
+    private static String validateNotEmpty(String name) {
+        if (name == null || name.isEmpty()) {
+            throw new IllegalArgumentException(Messages.Cloud_RequiredName());
+        }
+        return name;
+    }
+
+    @Override
     public String getDisplayName() {
         return name;
     }
@@ -112,17 +139,16 @@ public abstract class Cloud extends Actionable implements ExtensionPoint, Descri
      * @since 2.64
      * @return Jenkins relative URL.
      */
-    public @Nonnull String getUrl() {
-        return "cloud/" + name;
+    public @NonNull String getUrl() {
+        return "cloud/" + Util.rawEncode(name) + "/";
     }
 
-    /**
-     * {@inheritDoc}
-     */
-    public @Nonnull String getSearchUrl() {
+    @Override
+    public @NonNull String getSearchUrl() {
         return getUrl();
     }
 
+    @Override
     public ACL getACL() {
         return Jenkins.get().getAuthorizationStrategy().getACL(this);
     }
@@ -159,14 +185,70 @@ public abstract class Cloud extends Actionable implements ExtensionPoint, Descri
      *      just needs to return {@link PlannedNode}s that each contain an object that implements {@link Future}.
      *      When the {@link Future} has completed its work, {@link Future#get} will be called to obtain the
      *      provisioned {@link Node} object.
+     * @deprecated Use {@link #provision(CloudState, int)} instead.
      */
-    public abstract Collection<PlannedNode> provision(Label label, int excessWorkload);
+    @Deprecated
+    public Collection<PlannedNode> provision(Label label, int excessWorkload) {
+        return Util.ifOverridden(() -> provision(new CloudState(label, 0), excessWorkload),
+                Cloud.class,
+                getClass(),
+                "provision",
+                CloudState.class,
+                int.class);
+    }
+
+    /**
+     * Provisions new {@link Node}s from this cloud.
+     *
+     * <p>
+     * {@link NodeProvisioner} performs a trend analysis on the load,
+     * and when it determines that it <b>really</b> needs to bring up
+     * additional nodes, this method is invoked.
+     *
+     * <p>
+     * The implementation of this method asynchronously starts
+     * node provisioning.
+     *
+     * @param state the current state.
+     * @param excessWorkload
+     *      Number of total executors needed to meet the current demand.
+     *      Always ≥ 1. For example, if this is 3, the implementation
+     *      should launch 3 agents with 1 executor each, or 1 agent with
+     *      3 executors, etc.
+     * @return
+     *      {@link PlannedNode}s that represent asynchronous {@link Node}
+     *      provisioning operations. Can be empty but must not be null.
+     *      {@link NodeProvisioner} will be responsible for adding the resulting {@link Node}s
+     *      into Hudson via {@link jenkins.model.Jenkins#addNode(Node)}, so a {@link Cloud} implementation
+     *      just needs to return {@link PlannedNode}s that each contain an object that implements {@link Future}.
+     *      When the {@link Future} has completed its work, {@link Future#get} will be called to obtain the
+     *      provisioned {@link Node} object.
+     */
+    public Collection<PlannedNode> provision(CloudState state, int excessWorkload) {
+        return provision(state.getLabel(), excessWorkload);
+    }
+
+    /**
+     * Returns true if this cloud is capable of provisioning new nodes for the given label.
+     * @deprecated Use {@link #canProvision(CloudState)} instead.
+     */
+    @Deprecated
+    public boolean canProvision(Label label) {
+        return Util.ifOverridden(() -> canProvision(new CloudState(label, 0)),
+                Cloud.class,
+                getClass(),
+                "canProvision",
+                CloudState.class);
+    }
 
     /**
      * Returns true if this cloud is capable of provisioning new nodes for the given label.
      */
-    public abstract boolean canProvision(Label label);
+    public boolean canProvision(CloudState state) {
+        return canProvision(state.getLabel());
+    }
 
+    @Override
     public Descriptor<Cloud> getDescriptor() {
         return Jenkins.get().getDescriptorOrDie(getClass());
     }
@@ -183,11 +265,11 @@ public abstract class Cloud extends Actionable implements ExtensionPoint, Descri
     /**
      * Returns all the registered {@link Cloud} descriptors.
      */
-    public static DescriptorExtensionList<Cloud,Descriptor<Cloud>> all() {
+    public static DescriptorExtensionList<Cloud, Descriptor<Cloud>> all() {
         return Jenkins.get().getDescriptorList(Cloud.class);
     }
 
-    private static final PermissionScope PERMISSION_SCOPE = new PermissionScope(Cloud.class);
+    private static final PermissionScope PERMISSION_SCOPE = new PermissionScope(Cloud.class, PermissionScope.JENKINS);
 
     /**
      * Permission constant to control mutation operations on {@link Cloud}.
@@ -197,4 +279,127 @@ public abstract class Cloud extends Actionable implements ExtensionPoint, Descri
     public static final Permission PROVISION = new Permission(
             Computer.PERMISSIONS, "Provision", Messages._Cloud_ProvisionPermission_Description(), Jenkins.ADMINISTER, PERMISSION_SCOPE
     );
+
+    @SuppressFBWarnings(value = "RV_RETURN_VALUE_IGNORED_NO_SIDE_EFFECT", justification = "to guard against potential future compiler optimizations")
+    @Initializer(before = InitMilestone.SYSTEM_CONFIG_LOADED)
+    @Restricted(DoNotUse.class)
+    public static void registerPermissions() {
+        // Pending JENKINS-17200, ensure that the above permissions have been registered prior to
+        // allowing plugins to adapt the system configuration, which may depend on these permissions
+        // having been registered. Since this method is static and since it follows the above
+        // construction of static permission objects (and therefore their calls to
+        // PermissionGroup#register), there is nothing further to do in this method. We call
+        // Objects.hash() to guard against potential future compiler optimizations.
+        Objects.hash(PERMISSION_SCOPE, PROVISION);
+    }
+
+    public String getIcon() {
+        return "symbol-cloud";
+    }
+
+    public String getIconClassName() {
+        return "symbol-cloud";
+    }
+
+    @SuppressWarnings("unused") // stapler
+    public String getIconAltText() {
+        return getClass().getSimpleName().replace("Cloud", "");
+    }
+
+    /**
+     * Deletes the cloud.
+     */
+    @RequirePOST
+    public HttpResponse doDoDelete() throws IOException {
+        checkPermission(Jenkins.ADMINISTER);
+        Jenkins.get().clouds.remove(this);
+        return new HttpRedirect("..");
+    }
+
+    /**
+     * Accepts the update to the node configuration.
+     */
+    @POST
+    public HttpResponse doConfigSubmit(StaplerRequest2 req, StaplerResponse2 rsp) throws IOException, ServletException, Descriptor.FormException {
+        checkPermission(Jenkins.ADMINISTER);
+
+        Jenkins j = Jenkins.get();
+        Cloud cloud = j.getCloud(this.name);
+        if (cloud == null) {
+            throw new ServletException("No such cloud " + this.name);
+        }
+        Cloud result = cloud.reconfigure(req, req.getSubmittedForm());
+        String proposedName = result.name;
+        if (!proposedName.equals(this.name)
+                && j.getCloud(proposedName) != null) {
+            throw new Descriptor.FormException(jenkins.agents.Messages.CloudSet_CloudAlreadyExists(proposedName), "name");
+        }
+        j.clouds.replace(this, result);
+        j.save();
+        // take the user back to the cloud top page.
+        return FormApply.success("../" + result.name + '/');
+
+    }
+
+    /**
+     * @since 2.475
+     */
+    public Cloud reconfigure(@NonNull final StaplerRequest2 req, JSONObject form) throws Descriptor.FormException {
+        if (Util.isOverridden(Cloud.class, getClass(), "reconfigure", StaplerRequest.class, JSONObject.class)) {
+            return reconfigure(StaplerRequest.fromStaplerRequest2(req), form);
+        } else {
+            return reconfigureImpl(req, form);
+        }
+    }
+
+    /**
+     * @deprecated use {@link #reconfigure(StaplerRequest2, JSONObject)}
+     */
+    @Deprecated
+    public Cloud reconfigure(@NonNull final StaplerRequest req, JSONObject form) throws Descriptor.FormException {
+        return reconfigureImpl(StaplerRequest.toStaplerRequest2(req), form);
+    }
+
+    private Cloud reconfigureImpl(@NonNull final StaplerRequest2 req, JSONObject form) throws Descriptor.FormException {
+        if (form == null)     return null;
+        return getDescriptor().newInstance(req, form);
+    }
+
+    /**
+     * Parameter object for {@link hudson.slaves.Cloud}.
+     * @since 2.259
+     */
+    public static final class CloudState {
+        /**
+         * The label under consideration.
+         */
+        @CheckForNull
+        private final Label label;
+        /**
+         * The additional planned capacity for this {@link #label} and provisioned by previous strategies during the
+         * current updating of the {@link NodeProvisioner}.
+         */
+        private final int additionalPlannedCapacity;
+
+        public CloudState(@CheckForNull Label label, int additionalPlannedCapacity) {
+            this.label = label;
+            this.additionalPlannedCapacity = additionalPlannedCapacity;
+        }
+
+        /**
+         * The label under consideration.
+         */
+        @CheckForNull
+        public Label getLabel() {
+            return label;
+        }
+
+        /**
+         * The additional planned capacity for this {@link #getLabel()} and provisioned by previous strategies during
+         * the current updating of the {@link NodeProvisioner}.
+         */
+        public int getAdditionalPlannedCapacity() {
+            return additionalPlannedCapacity;
+        }
+    }
 }

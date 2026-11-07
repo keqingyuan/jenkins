@@ -21,7 +21,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
-package jenkins.management.AsynchronousAdministrativeMonitor;
+package jenkins.management.AsynchronousAdministrativeMonitor
 
 def l = namespace(lib.LayoutTagLib)
 def t = namespace(lib.JenkinsTagLib)
@@ -33,7 +33,7 @@ l.layout {
         if (my.isFixingActive()) {
             pre(id: "out")
             div(id: "spinner") {
-                img(src: "${imagesURL}/spinner.gif", alt: "")
+                l.progessAnimation()
             }
             t.progressiveText(spinner: "spinner", href: "logText/progressiveHtml", idref: "out")
         } else {

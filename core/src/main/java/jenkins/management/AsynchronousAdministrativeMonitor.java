@@ -1,21 +1,22 @@
 package jenkins.management;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.AbortException;
 import hudson.Functions;
+import hudson.Util;
 import hudson.console.AnnotatedLargeText;
 import hudson.model.AdministrativeMonitor;
 import hudson.model.TaskListener;
 import hudson.security.ACL;
+import hudson.security.ACLContext;
 import hudson.util.StreamTaskListener;
-import jenkins.model.Jenkins;
-import jenkins.security.RekeySecretAdminMonitor;
-
 import java.io.File;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.Charset;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import javax.annotation.Nonnull;
+import jenkins.model.Jenkins;
 
 /**
  * Convenient partial implementation of {@link AdministrativeMonitor} that involves a background "fixing" action
@@ -24,9 +25,6 @@ import javax.annotation.Nonnull;
  * <p>
  * A subclass defines what that background fixing actually does in {@link #fix(TaskListener)}. The logging output
  * from it gets persisted, and this class provides a "/log" view that allows the administrator to monitor its progress.
- *
- * <p>
- * See {@link RekeySecretAdminMonitor} for an example of how to subtype this class.
  *
  * @author Kohsuke Kawaguchi
  */
@@ -40,14 +38,14 @@ public abstract class AsynchronousAdministrativeMonitor extends AdministrativeMo
      * Is there an active execution process going on?
      */
     public boolean isFixingActive() {
-        return fixThread !=null && fixThread.isAlive();
+        return fixThread != null && fixThread.isAlive();
     }
 
     /**
      * Used to URL-bind {@link AnnotatedLargeText}.
      */
     public AnnotatedLargeText getLogText() {
-        return new AnnotatedLargeText<AsynchronousAdministrativeMonitor>(
+        return new AnnotatedLargeText<>(
                 getLogFile(), Charset.defaultCharset(),
                 !isFixingActive(), this);
     }
@@ -57,14 +55,19 @@ public abstract class AsynchronousAdministrativeMonitor extends AdministrativeMo
      */
     protected File getLogFile() {
         File base = getBaseDir();
-        base.mkdirs();
-        return new File(base,"log");
+        try {
+            Util.createDirectories(base.toPath());
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return new File(base, "log");
     }
 
     protected File getBaseDir() {
-        return new File(Jenkins.getInstance().getRootDir(),getClass().getName());
+        return new File(Jenkins.get().getRootDir(), getClass().getName());
     }
 
+    @Override
     public abstract String getDisplayName();
 
     /**
@@ -97,9 +100,8 @@ public abstract class AsynchronousAdministrativeMonitor extends AdministrativeMo
 
         @Override
         public void run() {
-            ACL.impersonate(ACL.SYSTEM);
             StreamTaskListener listener = null;
-            try {
+            try (ACLContext ctx = ACL.as2(ACL.SYSTEM2)) {
                 listener = new StreamTaskListener(getLogFile());
                 try {
                     doRun(listener);
@@ -120,7 +122,7 @@ public abstract class AsynchronousAdministrativeMonitor extends AdministrativeMo
          * Runs the monitor and encapsulates all errors within.
          * @since 1.590
          */
-        private void doRun(@Nonnull TaskListener listener) {
+        private void doRun(@NonNull TaskListener listener) {
             try {
                 fix(listener);
             } catch (AbortException e) {

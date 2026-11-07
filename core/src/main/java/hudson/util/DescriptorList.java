@@ -1,18 +1,18 @@
 /*
  * The MIT License
- * 
+ *
  * Copyright (c) 2004-2009, Sun Microsystems, Inc., Kohsuke Kawaguchi
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in
  * all copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -21,22 +21,23 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package hudson.util;
 
+import edu.umd.cs.findbugs.annotations.CheckForNull;
 import hudson.Extension;
 import hudson.ExtensionList;
 import hudson.model.Describable;
 import hudson.model.Descriptor;
 import hudson.model.Descriptor.FormException;
-import jenkins.model.Jenkins;
-import net.sf.json.JSONObject;
-import org.kohsuke.stapler.Stapler;
-
 import java.util.AbstractList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
-import javax.annotation.CheckForNull;
+import jenkins.model.Jenkins;
+import net.sf.json.JSONException;
+import net.sf.json.JSONObject;
+import org.kohsuke.stapler.Stapler;
 
 /**
  * List of {@link Descriptor}s.
@@ -82,7 +83,7 @@ public final class DescriptorList<T extends Describable<T>> extends AbstractList
     @Deprecated
     public DescriptorList(Descriptor<T>... descriptors) {
         this.type = null;
-        this.legacy = new CopyOnWriteArrayList<Descriptor<T>>(descriptors);
+        this.legacy = new CopyOnWriteArrayList<>(descriptors);
     }
 
     /**
@@ -109,8 +110,6 @@ public final class DescriptorList<T extends Describable<T>> extends AbstractList
     }
 
     /**
-     * {@inheritDoc}
-     *
      * @deprecated
      *      As of 1.286. Put {@link Extension} on your descriptor to have it auto-registered,
      *      instead of registering a descriptor manually.
@@ -122,8 +121,6 @@ public final class DescriptorList<T extends Describable<T>> extends AbstractList
     }
 
     /**
-     * {@inheritDoc}
-     *
      * @deprecated
      *      As of 1.286. Put {@link Extension} on your descriptor to have it auto-registered,
      *      instead of registering a descriptor manually.
@@ -143,40 +140,46 @@ public final class DescriptorList<T extends Describable<T>> extends AbstractList
      * Gets the actual data store. This is the key to control the dual-mode nature of {@link DescriptorList}
      */
     private List<Descriptor<T>> store() {
-        if(type==null)
+        if (type == null)
             return legacy;
         else
-            return Jenkins.getInstance().<T,Descriptor<T>>getDescriptorList(type);
+            return Jenkins.get().getDescriptorList(type);
     }
 
     /**
      * Creates a new instance of a {@link Describable}
      * from the structured form submission data posted
-     * by a radio button group. 
+     * by a radio button group.
      * @param config Submitted configuration for Radio List
-     * @return new instance or {@code null} if none was selected in the radio list
+     * @return New instance.
+     *         {@code null} if none was selected in the radio list or if the value is filtered by a {@link hudson.model.DescriptorVisibilityFilter}
      * @throws FormException Data submission error
      */
     @CheckForNull
     public T newInstanceFromRadioList(JSONObject config) throws FormException {
-        if(config.isNullObject())
+        if (config.isNullObject())
             return null;    // none was selected
         int idx = config.getInt("value");
-        return get(idx).newInstance(Stapler.getCurrentRequest(),config);
+        return get(idx).newInstance(Stapler.getCurrentRequest2(), config);
     }
 
     /**
      * Creates a new instance of a {@link Describable}
      * from the structured form submission data posted
-     * by a radio button group. 
+     * by a radio button group.
      * @param parent JSON, which contains the configuration entry for the radio list
      * @param name Name of the configuration entry for the radio list
-     * @return new instance or {@code null} if none was selected in the radio list
+     * @return New instance.
+     *         {@code null} if none was selected in the radio list or if the value is filtered by a {@link hudson.model.DescriptorVisibilityFilter}
      * @throws FormException Data submission error
      */
     @CheckForNull
     public T newInstanceFromRadioList(JSONObject parent, String name) throws FormException {
-        return newInstanceFromRadioList(parent.getJSONObject(name));
+        try {
+            return newInstanceFromRadioList(parent.getJSONObject(name));
+        } catch (JSONException ex) {
+            throw new FormException(ex, name);
+        }
     }
 
     /**
@@ -187,7 +190,7 @@ public final class DescriptorList<T extends Describable<T>> extends AbstractList
     @CheckForNull
     public Descriptor<T> findByName(String id) {
         for (Descriptor<T> d : this)
-            if(d.getId().equals(id))
+            if (d.getId().equals(id))
                 return d;
         return null;
     }
@@ -217,8 +220,9 @@ public final class DescriptorList<T extends Describable<T>> extends AbstractList
      * Finds the descriptor that has the matching fully-qualified class name.
      * @deprecated Underspecified what the parameter is. {@link Descriptor#getId}? A {@link Describable} class name?
      */
+    @Deprecated
     @CheckForNull
     public Descriptor<T> find(String fqcn) {
-        return Descriptor.find(this,fqcn);
+        return Descriptor.find(this, fqcn);
     }
 }

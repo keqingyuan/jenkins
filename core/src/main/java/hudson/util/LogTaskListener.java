@@ -24,30 +24,29 @@
 
 package hudson.util;
 
-import hudson.console.ConsoleNote;
+import hudson.console.PlainTextConsoleOutputStream;
 import hudson.model.TaskListener;
 import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 
-// TODO: AbstractTaskListener is empty now, but there are dependencies on that e.g. Ruby Runtime - JENKINS-48116)
-// The change needs API deprecation policy or external usages cleanup.
-
 /**
  * {@link TaskListener} which sends messages to a {@link Logger}.
  */
+@SuppressWarnings("deprecation") // to preserve serial form
 public class LogTaskListener extends AbstractTaskListener implements TaskListener, Closeable {
 
     // would be simpler to delegate to the LogOutputStream but this would incompatibly change the serial form
     private final TaskListener delegate;
 
     public LogTaskListener(Logger logger, Level level) {
-        delegate = new StreamTaskListener(new LogOutputStream(logger, level, new Throwable().getStackTrace()[1]));
+        delegate = new StreamTaskListener(new PlainTextConsoleOutputStream(new LogOutputStream(logger, level, new Throwable().getStackTrace()[1])));
     }
 
     @Override
@@ -56,16 +55,11 @@ public class LogTaskListener extends AbstractTaskListener implements TaskListene
     }
 
     @Override
-    @SuppressWarnings("rawtypes")
-    public void annotate(ConsoleNote ann) {
-        // no annotation support
-    }
-
-    @Override
     public void close() {
         delegate.getLogger().close();
     }
 
+    // TODO a bit simpler to use LineTransformationOutputStream
     private static class LogOutputStream extends OutputStream {
 
         private final Logger logger;
@@ -91,7 +85,7 @@ public class LogTaskListener extends AbstractTaskListener implements TaskListene
         @Override
         public void flush() throws IOException {
             if (baos.size() > 0) {
-                LogRecord lr = new LogRecord(level, baos.toString());
+                LogRecord lr = new LogRecord(level, baos.toString(StandardCharsets.UTF_8));
                 lr.setLoggerName(logger.getName());
                 lr.setSourceClassName(caller.getClassName());
                 lr.setSourceMethodName(caller.getMethodName());

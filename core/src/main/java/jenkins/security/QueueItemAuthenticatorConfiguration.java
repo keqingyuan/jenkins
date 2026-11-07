@@ -1,18 +1,17 @@
 package jenkins.security;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.Extension;
 import hudson.model.PersistentDescriptor;
 import hudson.model.queue.Tasks;
 import hudson.util.DescribableList;
+import java.io.IOException;
+import java.util.List;
 import jenkins.model.GlobalConfiguration;
 import jenkins.model.GlobalConfigurationCategory;
 import net.sf.json.JSONObject;
 import org.jenkinsci.Symbol;
-import org.kohsuke.stapler.StaplerRequest;
-
-import javax.annotation.Nonnull;
-import java.io.IOException;
-import java.util.List;
+import org.kohsuke.stapler.StaplerRequest2;
 
 /**
  * Show the {@link QueueItemAuthenticator} configurations on the system config page.
@@ -22,8 +21,8 @@ import java.util.List;
  */
 @Extension @Symbol("queueItemAuthenticator")
 public class QueueItemAuthenticatorConfiguration extends GlobalConfiguration implements PersistentDescriptor {
-    private final DescribableList<QueueItemAuthenticator,QueueItemAuthenticatorDescriptor> authenticators
-        = new DescribableList<QueueItemAuthenticator, QueueItemAuthenticatorDescriptor>(this);
+    private final DescribableList<QueueItemAuthenticator, QueueItemAuthenticatorDescriptor> authenticators
+        = new DescribableList<>(this);
 
     private Object readResolve() {
         authenticators.setOwner(this);
@@ -31,7 +30,7 @@ public class QueueItemAuthenticatorConfiguration extends GlobalConfiguration imp
     }
 
     @Override
-    public @Nonnull GlobalConfigurationCategory getCategory() {
+    public @NonNull GlobalConfigurationCategory getCategory() {
         return GlobalConfigurationCategory.get(GlobalConfigurationCategory.Security.class);
     }
 
@@ -48,23 +47,23 @@ public class QueueItemAuthenticatorConfiguration extends GlobalConfiguration imp
     }
 
     @Override
-    public boolean configure(StaplerRequest req, JSONObject json) throws FormException {
+    public boolean configure(StaplerRequest2 req, JSONObject json) throws FormException {
         try {
-            authenticators.rebuildHetero(req,json, QueueItemAuthenticatorDescriptor.all(),"authenticators");
+            authenticators.rebuildHetero(req, json, QueueItemAuthenticatorDescriptor.all(), "authenticators");
             return true;
         } catch (IOException e) {
-            throw new FormException(e,"authenticators");
+            throw new FormException(e, "authenticators");
         }
     }
 
-    public static @Nonnull QueueItemAuthenticatorConfiguration get() {
+    public static @NonNull QueueItemAuthenticatorConfiguration get() {
         return GlobalConfiguration.all().getInstance(QueueItemAuthenticatorConfiguration.class);
     }
 
     @Extension(ordinal = 100)
     public static class ProviderImpl extends QueueItemAuthenticatorProvider {
 
-        @Nonnull
+        @NonNull
         @Override
         public List<QueueItemAuthenticator> getAuthenticators() {
             return get().getAuthenticators();

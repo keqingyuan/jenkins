@@ -22,36 +22,40 @@
  * THE SOFTWARE.
  */
 
-/**
- * @author pjanouse
- */
-
 package hudson.cli;
 
-import hudson.model.Computer;
-import jenkins.model.Jenkins;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-import org.jvnet.hudson.test.JenkinsRule;
-
-import static hudson.cli.CLICommandInvoker.Matcher.*;
+import static hudson.cli.CLICommandInvoker.Matcher.failedWith;
+import static hudson.cli.CLICommandInvoker.Matcher.hasNoStandardOutput;
+import static hudson.cli.CLICommandInvoker.Matcher.succeededSilently;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.nullValue;
 
-public class DeleteNodeCommandTest {
+import hudson.model.Computer;
+import jenkins.model.Jenkins;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
+
+/**
+ * @author pjanouse
+ */
+@WithJenkins
+class DeleteNodeCommandTest {
 
     private CLICommandInvoker command;
 
-    @Rule public final JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
 
-    @Before public void setUp() {
-
+    @BeforeEach
+    void setUp(JenkinsRule rule) {
+        j = rule;
         command = new CLICommandInvoker(j, "delete-node");
     }
 
-    @Test public void deleteNodeShouldFailWithoutNodeDeletePermission() throws Exception {
+    @Test
+    void deleteNodeShouldFailWithoutNodeDeletePermission() throws Exception {
 
         j.createSlave("aNode", "", null);
 
@@ -65,7 +69,8 @@ public class DeleteNodeCommandTest {
         assertThat(result.stderr(), containsString("ERROR: user is missing the Agent/Delete permission"));
     }
 
-    @Test public void deleteNodeShouldSucceed() throws Exception {
+    @Test
+    void deleteNodeShouldSucceed() throws Exception {
 
         j.createSlave("aNode", "", null);
 
@@ -78,7 +83,8 @@ public class DeleteNodeCommandTest {
         assertThat(j.jenkins.getNode("aNode"), nullValue());
     }
 
-    @Test public void deleteNodeShouldFailIfNodeDoesNotExist() {
+    @Test
+    void deleteNodeShouldFailIfNodeDoesNotExist() {
 
         final CLICommandInvoker.Result result = command
                 .authorizedTo(Computer.DELETE, Jenkins.READ)
@@ -90,7 +96,8 @@ public class DeleteNodeCommandTest {
         assertThat(result.stderr(), containsString("ERROR: No such node 'never_created'"));
     }
 
-    @Test public void deleteNodeManyShouldSucceed() throws Exception {
+    @Test
+    void deleteNodeManyShouldSucceed() throws Exception {
 
         j.createSlave("aNode1", "", null);
         j.createSlave("aNode2", "", null);
@@ -106,7 +113,8 @@ public class DeleteNodeCommandTest {
         assertThat(j.jenkins.getView("aNode3"), nullValue());
     }
 
-    @Test public void deleteNodeManyShouldFailIfFirstNodeDoesNotExist() throws Exception {
+    @Test
+    void deleteNodeManyShouldFailIfFirstNodeDoesNotExist() throws Exception {
 
         j.createSlave("aNode1", "", null);
         j.createSlave("aNode2", "", null);
@@ -125,7 +133,8 @@ public class DeleteNodeCommandTest {
         assertThat(j.jenkins.getView("never_created"), nullValue());
     }
 
-    @Test public void deleteNodeManyShouldFailIfMiddleNodeDoesNotExist() throws Exception {
+    @Test
+    void deleteNodeManyShouldFailIfMiddleNodeDoesNotExist() throws Exception {
 
         j.createSlave("aNode1", "", null);
         j.createSlave("aNode2", "", null);
@@ -144,7 +153,8 @@ public class DeleteNodeCommandTest {
         assertThat(j.jenkins.getView("never_created"), nullValue());
     }
 
-    @Test public void deleteNodeManyShouldFailIfLastNodeDoesNotExist() throws Exception {
+    @Test
+    void deleteNodeManyShouldFailIfLastNodeDoesNotExist() throws Exception {
 
         j.createSlave("aNode1", "", null);
         j.createSlave("aNode2", "", null);
@@ -163,7 +173,8 @@ public class DeleteNodeCommandTest {
         assertThat(j.jenkins.getView("never_created"), nullValue());
     }
 
-    @Test public void deleteNodeManyShouldFailIfMoreNodesDoNotExist() throws Exception {
+    @Test
+    void deleteNodeManyShouldFailIfMoreNodesDoNotExist() throws Exception {
 
         j.createSlave("aNode1", "", null);
         j.createSlave("aNode2", "", null);
@@ -184,7 +195,8 @@ public class DeleteNodeCommandTest {
         assertThat(j.jenkins.getView("never_created2"), nullValue());
     }
 
-    @Test public void deleteNodeManyShouldSucceedEvenANodeIsSpecifiedTwice() throws Exception {
+    @Test
+    void deleteNodeManyShouldSucceedEvenANodeIsSpecifiedTwice() throws Exception {
 
         j.createSlave("aNode1", "", null);
         j.createSlave("aNode2", "", null);

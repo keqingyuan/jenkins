@@ -15,19 +15,19 @@ import java.util.List;
  * @see hudson.model.Computer#getComputerPanelBoxs()
  */
 
-public abstract class ComputerPanelBox implements ExtensionPoint{
-    
+public abstract class ComputerPanelBox implements ExtensionPoint {
+
     private Computer computer;
-    
-    
-    public void setComputer(Computer computer){
+
+
+    public void setComputer(Computer computer) {
         this.computer = computer;
     }
-    
-    public Computer getComputer(){
+
+    public Computer getComputer() {
         return computer;
     }
-    
+
     /**
      * Create boxes for the given computer in its page.
      *
@@ -37,8 +37,8 @@ public abstract class ComputerPanelBox implements ExtensionPoint{
      *      List of all the registered {@link ComputerPanelBox}s.
      */
     public static List<ComputerPanelBox> all(Computer computer) {
-        List<ComputerPanelBox> boxs = new ArrayList<ComputerPanelBox>();
-        for(ComputerPanelBox box:  ExtensionList.lookup(ComputerPanelBox.class)){
+        List<ComputerPanelBox> boxs = new ArrayList<>();
+        for (ComputerPanelBox box : ExtensionList.lookup(ComputerPanelBox.class)) {
             box.setComputer(computer);
             boxs.add(box);
         }

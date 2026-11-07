@@ -21,15 +21,14 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package hudson.markup;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.Extension;
 import hudson.Util;
-import hudson.markup.MarkupFormatter;
-import hudson.markup.MarkupFormatterDescriptor;
 import java.io.IOException;
 import java.io.Writer;
-
 import org.jenkinsci.Symbol;
 import org.kohsuke.stapler.DataBoundConstructor;
 
@@ -47,12 +46,15 @@ public class EscapedMarkupFormatter extends MarkupFormatter {
 
     @Override
     public void translate(String markup, Writer output) throws IOException {
-        output.write(Util.escape(markup));
+        if (markup != null) {
+            output.write(Util.escape(markup));
+        }
     }
 
     @Extension @Symbol("plainText")
     public static class DescriptorImpl extends MarkupFormatterDescriptor {
 
+        @NonNull
         @Override
         public String getDisplayName() {
             return Messages.EscapedMarkupFormatter_DisplayName();

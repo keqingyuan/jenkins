@@ -21,13 +21,14 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package hudson.model;
 
-import hudson.tasks.BuildStep;
-import hudson.tasks.Recorder;
-import hudson.tasks.Builder;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.scm.SCM;
-import javax.annotation.Nonnull;
+import hudson.tasks.BuildStep;
+import hudson.tasks.Builder;
+import hudson.tasks.Recorder;
 
 /**
  * Provides a mechanism for synchronizing build executions in the face of concurrent builds.
@@ -60,7 +61,7 @@ import javax.annotation.Nonnull;
  * depend on its earlier result.
  *
  * @author Kohsuke Kawaguchi
- * @see BuildStep#getRequiredMonitorService() 
+ * @see BuildStep#getRequiredMonitorService()
  * @since 1.319
  */
 public final class CheckPoint {
@@ -87,7 +88,7 @@ public final class CheckPoint {
     @Override
     public boolean equals(Object that) {
         if (that == null || getClass() != that.getClass()) return false;
-        return identity== ((CheckPoint) that).identity;
+        return identity == ((CheckPoint) that).identity;
     }
 
     @Override
@@ -97,11 +98,11 @@ public final class CheckPoint {
 
     @Override
     public String toString() {
-        return "Check point "+internalName;
+        return "Check point " + internalName;
     }
 
     /**
-     * Records that the execution of the build has reached to a check point, idenified
+     * Records that the execution of the build has reached to a check point, identified
      * by the given identifier.
      *
      * <p>
@@ -140,7 +141,7 @@ public final class CheckPoint {
      * This method can be only called from an {@link Executor} thread.
      *
      * @throws InterruptedException
-     *      If the build (represented by the calling executor thread) is aborted while it's waiting.  
+     *      If the build (represented by the calling executor thread) is aborted while it's waiting.
      */
     public void block() throws InterruptedException {
         Run.waitForCheckpoint(this, null, null);
@@ -153,7 +154,7 @@ public final class CheckPoint {
      * @throws InterruptedException if the build is aborted while waiting
      * @since 1.528
      */
-    public void block(@Nonnull BuildListener listener, @Nonnull String waiter) throws InterruptedException {
+    public void block(@NonNull BuildListener listener, @NonNull String waiter) throws InterruptedException {
         Run.waitForCheckpoint(this, listener, waiter);
     }
 

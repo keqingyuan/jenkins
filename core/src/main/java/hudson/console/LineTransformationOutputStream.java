@@ -21,10 +21,10 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package hudson.console;
 
 import hudson.util.ByteArrayOutputStream2;
-
 import java.io.IOException;
 import java.io.OutputStream;
 
@@ -32,13 +32,22 @@ import java.io.OutputStream;
  * Filtering {@link OutputStream} that buffers text by line, so that the derived class
  * can perform some manipulation based on the contents of the whole line.
  *
- * TODO: Mac is supposed to be CR-only. This class needs to handle that.
+ * <p>Subclass {@link Delegating} in the typical case that you are decorating an underlying stream.
  *
  * @author Kohsuke Kawaguchi
  * @since 1.349
  */
 public abstract class LineTransformationOutputStream extends OutputStream {
+    private boolean sawCR;
     private ByteArrayOutputStream2 buf = new ByteArrayOutputStream2();
+
+    /**
+     * Returns the number of bytes currently buffered for the current line.
+     * @since 2.569
+     */
+    public int lineBufferSize() {
+        return buf.size();
+    }
 
     /**
      * Called for each end of the line.
@@ -47,30 +56,39 @@ public abstract class LineTransformationOutputStream extends OutputStream {
      *      Contents of the whole line, including the EOL code like CR/LF.
      * @param len
      *      Specifies the length of the valid contents in 'b'. The rest is garbage.
-     *      This is so that the caller doesn't have to allocate an array of the exact size. 
+     *      This is so that the caller doesn't have to allocate an array of the exact size.
      */
     protected abstract void eol(byte[] b, int len) throws IOException;
 
+    @Override
     public void write(int b) throws IOException {
+        if (sawCR && b != '\n') {
+            eol();
+        }
         buf.write(b);
-        if (b==LF) eol();
+        if (b == '\n') {
+            eol();
+        } else if (b == '\r') {
+            sawCR = true;
+        }
     }
 
     private void eol() throws IOException {
-        eol(buf.getBuffer(),buf.size());
+        eol(buf.getBuffer(), buf.size());
 
         // reuse the buffer under normal circumstances, but don't let the line buffer grow unbounded
-        if (buf.size()>4096)
+        if (buf.size() > 4096)
             buf = new ByteArrayOutputStream2();
         else
             buf.reset();
+        sawCR = false;
     }
 
     @Override
     public void write(byte[] b, int off, int len) throws IOException {
-        int end = off+len;
+        int end = off + len;
 
-        for( int i=off; i<end; i++ )
+        for (int i = off; i < end; i++)
             write(b[i]);
     }
 
@@ -86,7 +104,7 @@ public abstract class LineTransformationOutputStream extends OutputStream {
      * actually neither flushing nor closing the stream.
      */
     public void forceEol() throws IOException {
-        if (buf.size()>0) {
+        if (buf.size() > 0) {
             /*
                 because LargeText cuts output at the line end boundary, this is
                 possible only for the very end of the console output, if the output ends without NL.
@@ -97,17 +115,43 @@ public abstract class LineTransformationOutputStream extends OutputStream {
 
     protected String trimEOL(String line) {
         int slen = line.length();
-        while (slen>0) {
-            char ch = line.charAt(slen-1);
-            if (ch=='\r' || ch=='\n') {
+        while (slen > 0) {
+            char ch = line.charAt(slen - 1);
+            if (ch == '\r' || ch == '\n') {
                 slen--;
                 continue;
             }
             break;
         }
-        line = line.substring(0,slen);
+        line = line.substring(0, slen);
         return line;
     }
 
-    private static final int LF = 0x0A;
+    /**
+     * Convenience subclass for cases where you wish to process lines being sent to an underlying stream.
+     * {@link #eol} will typically {@link OutputStream#write(byte[], int, int)} to {@link #out}.
+     * Flushing or closing the decorated stream will behave properly.
+     * @since 2.173
+     */
+    public abstract static class Delegating extends LineTransformationOutputStream {
+
+        protected final OutputStream out;
+
+        protected Delegating(OutputStream out) {
+            this.out = out;
+        }
+
+        @Override
+        public void flush() throws IOException {
+            out.flush();
+        }
+
+        @Override
+        public void close() throws IOException {
+            super.close();
+            out.close();
+        }
+
+    }
+
 }

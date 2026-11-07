@@ -1,5 +1,6 @@
 package jenkins.util;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.util.AbstractSet;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -44,7 +45,7 @@ public abstract class DirectedGraph<N> {
          */
         public final int index;
 
-        private final List<N> members = new ArrayList<N>();
+        private final List<N> members = new ArrayList<>();
 
         public SCC(int index) {
             this.index = index;
@@ -76,6 +77,7 @@ public abstract class DirectedGraph<N> {
          */
         int lowlink;
 
+        @SuppressFBWarnings(value = "URF_UNREAD_FIELD", justification = "no big deal")
         SCC scc;
 
         Node(N n) {
@@ -91,15 +93,15 @@ public abstract class DirectedGraph<N> {
      * Performs the Tarjan's algorithm and computes strongly-connected components from the
      * sink to source order.
      *
-     * See http://en.wikipedia.org/wiki/Tarjan's_strongly_connected_components_algorithm
+     * See <a href="https://en.wikipedia.org/wiki/Tarjan%27s_strongly_connected_components_algorithm">the Wikipedia page</a>.
      */
     public List<SCC<N>> getStronglyConnectedComponents() {
-        final Map<N, Node> nodes = new HashMap<N, Node>();
+        final Map<N, Node> nodes = new HashMap<>();
         for (N n : nodes()) {
-            nodes.put(n,new Node(n));
+            nodes.put(n, new Node(n));
         }
 
-        final List<SCC<N>> sccs = new ArrayList<SCC<N>>();
+        final List<SCC<N>> sccs = new ArrayList<>();
 
         class Tarjan {
             int index = 0;
@@ -107,33 +109,33 @@ public abstract class DirectedGraph<N> {
             /**
              * Nodes not yet classified for the strongly connected components
              */
-            Stack<Node> pending = new Stack<Node>();
-            
+            Stack<Node> pending = new Stack<>();
+
             void traverse() {
                 for (Node n : nodes.values()) {
-                    if (n.index==-1)
+                    if (n.index == -1)
                         visit(n);
                 }
             }
-            
+
             void visit(Node v) {
                 v.index = v.lowlink = index++;
                 pending.push(v);
 
                 for (N q : v.edges()) {
                     Node w = nodes.get(q);
-                    if (w.index==-1) {
+                    if (w.index == -1) {
                         visit(w);
-                        v.lowlink = Math.min(v.lowlink,w.lowlink);
+                        v.lowlink = Math.min(v.lowlink, w.lowlink);
                     } else
                     if (pending.contains(w)) {
-                        v.lowlink = Math.min(v.lowlink,w.index);
+                        v.lowlink = Math.min(v.lowlink, w.index);
                     }
                 }
 
-                if (v.lowlink==v.index) {
+                if (v.lowlink == v.index) {
                     // found a new SCC
-                    SCC<N> scc = new SCC<N>(sccIndex++);
+                    SCC<N> scc = new SCC<>(sccIndex++);
                     sccs.add(scc);
 
                     Node w;
@@ -141,7 +143,7 @@ public abstract class DirectedGraph<N> {
                         w = pending.pop();
                         w.scc = scc;
                         scc.members.add(w.n);
-                    } while(w!=v);
+                    } while (w != v);
                 }
             }
         }

@@ -21,22 +21,22 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package hudson.model;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.EnvVars;
 import hudson.util.Secret;
 import hudson.util.VariableResolver;
-import org.kohsuke.stapler.DataBoundConstructor;
-
 import java.util.Locale;
-import javax.annotation.Nonnull;
+import org.kohsuke.stapler.DataBoundConstructor;
 
 /**
  * @author Kohsuke Kawaguchi
  */
 public class PasswordParameterValue extends ParameterValue {
 
-    @Nonnull
+    @NonNull
     private final Secret value;
 
     // kept for backward compatibility
@@ -44,26 +44,28 @@ public class PasswordParameterValue extends ParameterValue {
         this(name, value, null);
     }
 
-    @DataBoundConstructor
+    @Deprecated
     public PasswordParameterValue(String name, String value, String description) {
         super(name, description);
         this.value = Secret.fromString(value);
     }
 
+    @DataBoundConstructor
+    public PasswordParameterValue(String name, Secret value, String description) {
+        super(name, description);
+        this.value = value;
+    }
+
     @Override
-    public void buildEnvironment(Run<?,?> build, EnvVars env) {
+    public void buildEnvironment(Run<?, ?> build, EnvVars env) {
         String v = Secret.toString(value);
         env.put(name, v);
-        env.put(name.toUpperCase(Locale.ENGLISH),v); // backward compatibility pre 1.345
+        env.put(name.toUpperCase(Locale.ENGLISH), v); // backward compatibility pre 1.345
     }
 
     @Override
     public VariableResolver<String> createVariableResolver(AbstractBuild<?, ?> build) {
-        return new VariableResolver<String>() {
-            public String resolve(String name) {
-                return PasswordParameterValue.this.name.equals(name) ? Secret.toString(value) : null;
-            }
-        };
+        return name -> PasswordParameterValue.this.name.equals(name) ? Secret.toString(value) : null;
     }
 
     @Override
@@ -71,7 +73,8 @@ public class PasswordParameterValue extends ParameterValue {
         return true;
     }
 
-    @Nonnull
+    @NonNull
+    @Override
     public Secret getValue() {
         return value;
     }

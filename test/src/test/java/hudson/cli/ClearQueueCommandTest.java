@@ -22,19 +22,7 @@
  * THE SOFTWARE.
  */
 
-/**
- * @author pjanouse
- */
-
 package hudson.cli;
-
-import hudson.model.FreeStyleProject;
-import hudson.model.labels.LabelAtom;
-import jenkins.model.Jenkins;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-import org.jvnet.hudson.test.JenkinsRule;
 
 import static hudson.cli.CLICommandInvoker.Matcher.failedWith;
 import static hudson.cli.CLICommandInvoker.Matcher.hasNoStandardOutput;
@@ -43,19 +31,32 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 
-public class ClearQueueCommandTest {
+import hudson.model.FreeStyleProject;
+import hudson.model.labels.LabelAtom;
+import jenkins.model.Jenkins;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
+
+/**
+ * @author pjanouse
+ */
+@WithJenkins
+class ClearQueueCommandTest {
 
     private CLICommandInvoker command;
 
-    @Rule
-    public final JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
 
-    @Before
-    public void setUp() {
+    @BeforeEach
+    void setUp(JenkinsRule rule) {
+        j = rule;
         command = new CLICommandInvoker(j, "clear-queue");
     }
 
-    @Test public void clearQueueShouldFailWithoutAdministerPermission() throws Exception {
+    @Test
+    void clearQueueShouldFailWithoutAdministerPermission() {
         final CLICommandInvoker.Result result = command
                 .authorizedTo(Jenkins.READ).invoke();
 
@@ -65,7 +66,7 @@ public class ClearQueueCommandTest {
     }
 
     @Test
-    public void clearQueueShouldSucceedOnEmptyQueue() throws Exception {
+    void clearQueueShouldSucceedOnEmptyQueue() {
         assertThat(j.jenkins.getQueue().isEmpty(), equalTo(true));
 
         final CLICommandInvoker.Result result = command
@@ -76,7 +77,7 @@ public class ClearQueueCommandTest {
     }
 
     @Test
-    public void clearQueueShouldSucceed() throws Exception {
+    void clearQueueShouldSucceed() throws Exception {
         assertThat(j.jenkins.getQueue().isEmpty(), equalTo(true));
 
         FreeStyleProject project = j.createFreeStyleProject("aProject");

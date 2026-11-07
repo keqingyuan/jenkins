@@ -1,7 +1,7 @@
 /*
  * The MIT License
  *
- * Copyright 2013 Jesse Glick.
+ * Copyright 2023 CloudBees, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -24,23 +24,41 @@
 
 package jenkins.model;
 
-import java.io.File;
-import org.junit.Test;
-import static org.junit.Assert.*;
-import org.junit.Rule;
-import org.junit.rules.TemporaryFolder;
-import org.jvnet.hudson.test.Issue;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 
-public class PeepholePermalinkTest {
+import hudson.model.PermalinkProjectAction;
+import hudson.model.Run;
+import java.util.stream.Collectors;
+import org.junit.jupiter.api.Test;
 
-    @Rule public TemporaryFolder tmp = new TemporaryFolder();
+class PeepholePermalinkTest {
 
-    @Issue("JENKINS-17681")
-    @Test public void symlinks() throws Exception {
-        File link = new File(tmp.getRoot(), "link");
-        PeepholePermalink.writeSymlink(link, "stuff");
-        PeepholePermalink.symlinks.clear(); // so we actually test the filesystem
-        assertEquals("stuff", PeepholePermalink.readSymlink(link));
+    @Test
+    void classLoadingDeadlock() throws Exception {
+        PeepholePermalink.initialized();
+        Thread t = new Thread(() ->
+            assertThat("successfully loaded permalinks",
+                PermalinkProjectAction.Permalink.BUILTIN.stream().map(PermalinkProjectAction.Permalink::getId).collect(Collectors.toSet()),
+                containsInAnyOrder("lastBuild", "lastStableBuild", "lastSuccessfulBuild", "lastFailedBuild", "lastUnstableBuild", "lastUnsuccessfulBuild", "lastCompletedBuild")));
+        t.start();
+        new PeepholePermalink() {
+            @Override
+            public boolean apply(Run<?, ?> run) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public String getDisplayName() {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public String getId() {
+                throw new UnsupportedOperationException();
+            }
+        };
+        t.join();
     }
 
 }

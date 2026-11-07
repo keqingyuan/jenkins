@@ -1,18 +1,18 @@
 /*
  * The MIT License
- * 
+ *
  * Copyright (c) 2004-2009, Sun Microsystems, Inc., Kohsuke Kawaguchi
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in
  * all copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -21,25 +21,23 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package hudson.model;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.console.ConsoleNote;
 import hudson.console.HyperlinkNote;
 import hudson.remoting.Channel;
-import hudson.util.NullStream;
 import hudson.util.StreamTaskListener;
-
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.PrintStream;
 import java.io.PrintWriter;
-import java.io.Serializable;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Formatter;
-import javax.annotation.Nonnull;
+import org.jenkinsci.remoting.SerializableOnlyOverRemoting;
 import org.kohsuke.accmod.Restricted;
-import org.kohsuke.accmod.restrictions.NoExternalUse;
 import org.kohsuke.accmod.restrictions.ProtectedExternally;
 
 /**
@@ -66,11 +64,11 @@ import org.kohsuke.accmod.restrictions.ProtectedExternally;
  *
  * @author Kohsuke Kawaguchi
  */
-public interface TaskListener extends Serializable {
+public interface TaskListener extends SerializableOnlyOverRemoting {
     /**
      * This writer will receive the output of the build
      */
-    @Nonnull
+    @NonNull
     PrintStream getLogger();
 
     /**
@@ -79,20 +77,18 @@ public interface TaskListener extends Serializable {
      * @return by default, UTF-8
      */
     @Restricted(ProtectedExternally.class)
-    @Nonnull
+    @NonNull
     default Charset getCharset() {
         return StandardCharsets.UTF_8;
     }
 
-    @Restricted(NoExternalUse.class) // TODO Java 9 make private
-    default PrintWriter _error(String prefix, String msg) {
+    private PrintWriter _error(String prefix, String msg) {
         PrintStream out = getLogger();
         out.print(prefix);
         out.println(msg);
 
-        // annotate(new HudsonExceptionNote()) if and when this is made to do something
         Charset charset = getCharset();
-        return new PrintWriter(charset != null ? new OutputStreamWriter(out, charset) : new OutputStreamWriter(out), true);
+        return new PrintWriter(new OutputStreamWriter(out, charset), true);
     }
 
     /**
@@ -122,7 +118,7 @@ public interface TaskListener extends Serializable {
      * @return
      *      A writer to receive details of the error.
      */
-    @Nonnull
+    @NonNull
     default PrintWriter error(String msg) {
         return _error("ERROR: ", msg);
     }
@@ -130,9 +126,9 @@ public interface TaskListener extends Serializable {
     /**
      * {@link Formatter#format(String, Object[])} version of {@link #error(String)}.
      */
-    @Nonnull
+    @NonNull
     default PrintWriter error(String format, Object... args) {
-        return error(String.format(format,args));
+        return error(String.format(format, args));
     }
 
     /**
@@ -141,7 +137,7 @@ public interface TaskListener extends Serializable {
      * @return
      *      A writer to receive details of the error.
      */
-    @Nonnull
+    @NonNull
     default PrintWriter fatalError(String msg) {
         return _error("FATAL: ", msg);
     }
@@ -149,7 +145,7 @@ public interface TaskListener extends Serializable {
     /**
      * {@link Formatter#format(String, Object[])} version of {@link #fatalError(String)}.
      */
-    @Nonnull
+    @NonNull
     default PrintWriter fatalError(String format, Object... args) {
         return fatalError(String.format(format, args));
     }
@@ -157,5 +153,5 @@ public interface TaskListener extends Serializable {
     /**
      * {@link TaskListener} that discards the output.
      */
-    TaskListener NULL = new StreamTaskListener(new NullStream());
+    TaskListener NULL = new NullTaskListener();
 }

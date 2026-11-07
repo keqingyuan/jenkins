@@ -1,18 +1,18 @@
 /*
  * The MIT License
- * 
+ *
  * Copyright (c) 2004-2009, Sun Microsystems, Inc., Kohsuke Kawaguchi, Stephen Connolly
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in
  * all copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -21,23 +21,35 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package hudson.model;
 
-import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.Nullable;
 import hudson.Util;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
+import java.util.stream.Collectors;
 import jenkins.model.ModelObjectWithContextMenu;
+import jenkins.model.Tab;
 import jenkins.model.TransientActionFactory;
+import jenkins.model.menu.Group;
+import jenkins.security.stapler.StaplerNotDispatchable;
+import org.jenkins.ui.icon.IconSpec;
+import org.kohsuke.accmod.Restricted;
+import org.kohsuke.accmod.restrictions.NoExternalUse;
 import org.kohsuke.stapler.StaplerRequest;
+import org.kohsuke.stapler.StaplerRequest2;
 import org.kohsuke.stapler.StaplerResponse;
+import org.kohsuke.stapler.StaplerResponse2;
 import org.kohsuke.stapler.export.Exported;
 import org.kohsuke.stapler.export.ExportedBean;
 
@@ -72,13 +84,13 @@ public abstract class Actionable extends AbstractModelObject implements ModelObj
      *             May still be called for compatibility reasons from subclasses predating {@link TransientActionFactory}.
      */
     @Deprecated
-    @Nonnull
+    @NonNull
     public List<Action> getActions() {
         //this double checked synchronization is only safe if the field 'actions' is volatile
         if (actions == null) {
             synchronized (this) {
                 if (actions == null) {
-                    actions = new CopyOnWriteArrayList<Action>();
+                    actions = new CopyOnWriteArrayList<>();
                 }
             }
         }
@@ -91,8 +103,8 @@ public abstract class Actionable extends AbstractModelObject implements ModelObj
      * @return an unmodifiable, possible empty list
      * @since 1.548
      */
-    @Exported(name="actions")
-    @Nonnull
+    @Exported(name = "actions")
+    @NonNull
     public final List<? extends Action> getAllActions() {
         List<Action> _actions = getActions();
         boolean adding = false;
@@ -109,6 +121,39 @@ public abstract class Actionable extends AbstractModelObject implements ModelObj
         return Collections.unmodifiableList(_actions);
     }
 
+    /**
+     * Collects and returns the list of actions to display in the application bar.
+     * <p>
+     * This method filters out actions that:
+     * <ul>
+     *   <li>are instances of {@link Tab}</li>
+     *   <li>lack a display name or an icon (either from {@link Action#getIconFileName()}
+     *       or, if available, {@link IconSpec#getIconClassName()})</li>
+     * </ul>
+     * <p>
+     * The resulting actions are sorted first by their {@link Group#getOrder()} value,
+     * then alphabetically by display name. The list is returned as an unmodifiable collection.
+     *
+     * @return an unmodifiable list of actions suitable for display in the app bar
+     */
+    @Restricted(NoExternalUse.class)
+    public List<Action> getAppBarActions() {
+        return getAllActions().stream()
+                .filter(e -> !(e instanceof Tab))
+                .filter(e -> {
+                    String icon = e.getIconFileName();
+
+                    if (e instanceof IconSpec iconSpec && iconSpec.getIconClassName() != null) {
+                        icon = iconSpec.getIconClassName();
+                    }
+
+                    return Util.fixEmptyAndTrim(e.getDisplayName()) != null || Util.fixEmptyAndTrim(icon) != null;
+                })
+                .sorted(Comparator.comparingInt((Action e) -> e.getGroup().getOrder())
+                        .thenComparing(e -> Objects.requireNonNullElse(e.getDisplayName(), "")))
+                .collect(Collectors.toUnmodifiableList());
+    }
+
     private <T> Collection<? extends Action> createFor(TransientActionFactory<T> taf) {
         try {
             Collection<? extends Action> result = taf.createFor(taf.type().cast(this));
@@ -119,7 +164,7 @@ public abstract class Actionable extends AbstractModelObject implements ModelObj
                 }
             }
             return result;
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             LOGGER.log(Level.WARNING, "Could not load actions from " + taf + " for " + this, e);
             return Collections.emptySet();
         }
@@ -132,12 +177,13 @@ public abstract class Actionable extends AbstractModelObject implements ModelObj
      * @return an unmodifiable, possible empty list
      * @see #getAction(Class)
      */
-    @Nonnull
+    @NonNull
     public <T extends Action> List<T> getActions(Class<T> type) {
-        List<T> _actions = Util.filter(getActions(), type);
+        List<T> _actions = new ArrayList<>();
         for (TransientActionFactory<?> taf : TransientActionFactory.factoriesFor(getClass(), type)) {
             _actions.addAll(Util.filter(createFor(taf), type));
         }
+        _actions.addAll(Util.filter(getActions(), type));
         return Collections.unmodifiableList(_actions);
     }
 
@@ -146,10 +192,9 @@ public abstract class Actionable extends AbstractModelObject implements ModelObj
      * Note: calls to {@link #getAllActions()} that happen before calls to this method may not see the update.
      * <strong>Note: this method will always modify the actions</strong>
      */
-    @SuppressWarnings({"ConstantConditions","deprecation"})
-    @SuppressFBWarnings("RCN_REDUNDANT_NULLCHECK_OF_NONNULL_VALUE")
-    public void addAction(@Nonnull Action a) {
-        if(a==null) {
+    @SuppressWarnings("ConstantConditions")
+    public void addAction(@NonNull Action a) {
+        if (a == null) {
             throw new IllegalArgumentException("Action must be non-null");
         }
         getActions().add(a);
@@ -164,15 +209,15 @@ public abstract class Actionable extends AbstractModelObject implements ModelObj
      * though technically consistent from the concurrency contract of {@link CopyOnWriteArrayList} (we would need
      * some form of transactions or a different backing type).
      *
+     * <p>See also {@link #addOrReplaceAction(Action)} if you want to know whether the backing
+     * {@link #actions} was modified, for example in cases where the caller would need to persist
+     * the {@link Actionable} in order to persist the change and there is a desire to elide
+     * unnecessary persistence of unmodified objects.
+     *
      * @param a an action to add/replace
      * @since 1.548
-     * @see #addOrReplaceAction(Action) if you want to know whether the backing {@link #actions} was modified, for
-     * example in cases where the caller would need to persist the {@link Actionable} in order to persist the change
-     * and there is a desire to elide unnecessary persistence of unmodified objects.
      */
-    @SuppressWarnings({"ConstantConditions", "deprecation"})
-    @SuppressFBWarnings("RCN_REDUNDANT_NULLCHECK_OF_NONNULL_VALUE")
-    public void replaceAction(@Nonnull Action a) {
+    public void replaceAction(@NonNull Action a) {
         addOrReplaceAction(a);
     }
 
@@ -189,14 +234,13 @@ public abstract class Actionable extends AbstractModelObject implements ModelObj
      * @return {@code true} if this actions changed as a result of the call
      * @since 2.29
      */
-    @SuppressWarnings({"ConstantConditions", "deprecation"})
-    @SuppressFBWarnings("RCN_REDUNDANT_NULLCHECK_OF_NONNULL_VALUE")
-    public boolean addOrReplaceAction(@Nonnull Action a) {
+    @SuppressWarnings("ConstantConditions")
+    public boolean addOrReplaceAction(@NonNull Action a) {
         if (a == null) {
             throw new IllegalArgumentException("Action must be non-null");
         }
         // CopyOnWriteArrayList does not support Iterator.remove, so need to do it this way:
-        List<Action> old = new ArrayList<Action>(1);
+        List<Action> old = new ArrayList<>(1);
         List<Action> current = getActions();
         boolean found = false;
         for (Action a2 : current) {
@@ -226,13 +270,12 @@ public abstract class Actionable extends AbstractModelObject implements ModelObj
      * @return {@code true} if this actions changed as a result of the call
      * @since 2.29
      */
-    @SuppressWarnings("deprecation")
     public boolean removeAction(@Nullable Action a) {
         if (a == null) {
             return false;
         }
         // CopyOnWriteArrayList does not support Iterator.remove, so need to do it this way:
-        return getActions().removeAll(Collections.singleton(a));
+        return getActions().removeAll(Set.of(a));
     }
 
     /**
@@ -248,14 +291,13 @@ public abstract class Actionable extends AbstractModelObject implements ModelObj
      * @return {@code true} if this actions changed as a result of the call
      * @since 2.29
      */
-    @SuppressWarnings({"ConstantConditions","deprecation"})
-    @SuppressFBWarnings("RCN_REDUNDANT_NULLCHECK_OF_NONNULL_VALUE")
-    public boolean removeActions(@Nonnull Class<? extends Action> clazz) {
+    @SuppressWarnings("ConstantConditions")
+    public boolean removeActions(@NonNull Class<? extends Action> clazz) {
         if (clazz == null) {
             throw new IllegalArgumentException("Action type must be non-null");
         }
         // CopyOnWriteArrayList does not support Iterator.remove, so need to do it this way:
-        List<Action> old = new ArrayList<Action>();
+        List<Action> old = new ArrayList<>();
         List<Action> current = getActions();
         for (Action a : current) {
             if (clazz.isInstance(a)) {
@@ -280,9 +322,8 @@ public abstract class Actionable extends AbstractModelObject implements ModelObj
      * @return {@code true} if this actions changed as a result of the call
      * @since 2.29
      */
-    @SuppressWarnings({"ConstantConditions", "deprecation"})
-    @SuppressFBWarnings("RCN_REDUNDANT_NULLCHECK_OF_NONNULL_VALUE")
-    public boolean replaceActions(@Nonnull Class<? extends Action> clazz, @Nonnull Action a) {
+    @SuppressWarnings("ConstantConditions")
+    public boolean replaceActions(@NonNull Class<? extends Action> clazz, @NonNull Action a) {
         if (clazz == null) {
             throw new IllegalArgumentException("Action type must be non-null");
         }
@@ -290,7 +331,7 @@ public abstract class Actionable extends AbstractModelObject implements ModelObj
             throw new IllegalArgumentException("Action must be non-null");
         }
         // CopyOnWriteArrayList does not support Iterator.remove, so need to do it this way:
-        List<Action> old = new ArrayList<Action>();
+        List<Action> old = new ArrayList<>();
         List<Action> current = getActions();
         boolean found = false;
         for (Action a1 : current) {
@@ -314,15 +355,14 @@ public abstract class Actionable extends AbstractModelObject implements ModelObj
     /** @deprecated No clear purpose, since subclasses may have overridden {@link #getActions}, and does not consider {@link TransientActionFactory}. */
     @Deprecated
     public Action getAction(int index) {
-        if(actions==null)   return null;
+        if (actions == null)   return null;
         return actions.get(index);
     }
 
     /**
      * Gets the action (first instance to be found) of a specified type that contributed to this build.
      *
-     * @param type
-     * @return The action or <code>null</code> if no such actions exist.
+     * @return The action or {@code null} if no such actions exist.
      * @see #getActions(Class)
      */
     public <T extends Action> T getAction(Class<T> type) {
@@ -343,21 +383,62 @@ public abstract class Actionable extends AbstractModelObject implements ModelObj
         return null;
     }
 
+    /**
+     * @since 2.475
+     */
+    public Object getDynamic(String token, StaplerRequest2 req, StaplerResponse2 rsp) {
+        if (Util.isOverridden(Actionable.class, getClass(), "getDynamic", String.class, StaplerRequest.class, StaplerResponse.class)) {
+            return getDynamic(token, StaplerRequest.fromStaplerRequest2(req), StaplerResponse.fromStaplerResponse2(rsp));
+        } else {
+            return getDynamicImpl(token, req, rsp);
+        }
+    }
+
+    /**
+     * @deprecated use {@link #getDynamic(String, StaplerRequest2, StaplerResponse2)}
+     */
+    @Deprecated
     public Object getDynamic(String token, StaplerRequest req, StaplerResponse rsp) {
+        return getDynamicImpl(token, StaplerRequest.toStaplerRequest2(req), StaplerResponse.toStaplerResponse2(rsp));
+    }
+
+    private Object getDynamicImpl(String token, StaplerRequest2 req, StaplerResponse2 rsp) {
         for (Action a : getAllActions()) {
-            if(a==null)
+            if (a == null)
                 continue;   // be defensive
             String urlName = a.getUrlName();
-            if(urlName==null)
+            if (urlName == null)
                 continue;
-            if(urlName.equals(token))
+            if (urlName.equals(token))
                 return a;
         }
         return null;
     }
 
-    @Override public ContextMenu doContextMenu(StaplerRequest request, StaplerResponse response) throws Exception {
-        return new ContextMenu().from(this,request,response);
+    /**
+     * @since 2.475
+     */
+    @Override
+    public ContextMenu doContextMenu(StaplerRequest2 request, StaplerResponse2 response) throws Exception {
+        if (Util.isOverridden(Actionable.class, getClass(), "doContextMenu", StaplerRequest.class, StaplerResponse.class)) {
+            return doContextMenu(StaplerRequest.fromStaplerRequest2(request), StaplerResponse.fromStaplerResponse2(response));
+        } else {
+            return doContextMenuImpl(request, response);
+        }
+    }
+
+    /**
+     * @deprecated use {@link #doContextMenu(StaplerRequest2, StaplerResponse2)}
+     */
+    @Deprecated
+    @StaplerNotDispatchable
+    @Override
+    public ContextMenu doContextMenu(StaplerRequest request, StaplerResponse response) throws Exception {
+        return doContextMenuImpl(StaplerRequest.toStaplerRequest2(request), StaplerResponse.toStaplerResponse2(response));
+    }
+
+    private ContextMenu doContextMenuImpl(StaplerRequest2 request, StaplerResponse2 response) throws Exception {
+        return new ContextMenu().from(this, request, response);
     }
 
     private static final Logger LOGGER = Logger.getLogger(Actionable.class.getName());

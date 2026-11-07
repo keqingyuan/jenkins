@@ -24,31 +24,37 @@
 
 package jenkins.security;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 import hudson.FilePath;
 import hudson.slaves.DumbSlave;
 import hudson.util.DirScanner;
 import java.io.OutputStream;
-import org.junit.Test;
-import static org.junit.Assert.*;
-import org.junit.Before;
-import org.junit.Rule;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.JenkinsRule;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
-public class FilePathSecureTest {
-
-    @Rule public JenkinsRule r = new JenkinsRule();
+// TODO What is this even testing?
+@WithJenkins
+class FilePathSecureTest {
 
     private DumbSlave s;
     private FilePath root, remote;
 
-    @Before public void init() throws Exception {
+    private JenkinsRule r;
+
+    @BeforeEach
+    void setUp(JenkinsRule rule) throws Exception {
+        r = rule;
         s = r.createOnlineSlave();
         root = r.jenkins.getRootPath();
         remote = s.getRootPath();
         // to see the difference: DefaultFilePathFilter.BYPASS = true;
     }
 
-    @Test public void unzip() throws Exception {
+    @Test
+    void unzip() throws Exception {
         FilePath dir = root.child("dir");
         dir.mkdirs();
         dir.child("stuff").write("hello", null);
@@ -58,22 +64,21 @@ public class FilePathSecureTest {
         assertEquals("hello", remote.child("dir/stuff").readToString());
     }
 
-    @Test public void untar() throws Exception {
+    @Test
+    void untar() throws Exception {
         FilePath dir = root.child("dir");
         dir.mkdirs();
         dir.child("stuff").write("hello", null);
         FilePath tar = root.child("dir.tar");
-        OutputStream os = tar.write();
-        try {
+        try (OutputStream os = tar.write()) {
             dir.tar(os, new DirScanner.Full());
-        } finally {
-            os.close();
         }
         tar.untar(remote, FilePath.TarCompression.NONE);
         assertEquals("hello", remote.child("dir/stuff").readToString());
     }
 
-    @Test public void zip() throws Exception {
+    @Test
+    void zip() throws Exception {
         FilePath dir = remote.child("dir");
         dir.mkdirs();
         dir.child("stuff").write("hello", null);
@@ -83,16 +88,14 @@ public class FilePathSecureTest {
         assertEquals("hello", remote.child("dir/stuff").readToString());
     }
 
-    @Test public void tar() throws Exception {
+    @Test
+    void tar() throws Exception {
         FilePath dir = remote.child("dir");
         dir.mkdirs();
         dir.child("stuff").write("hello", null);
         FilePath tar = root.child("dir.tar");
-        OutputStream os = tar.write();
-        try {
+        try (OutputStream os = tar.write()) {
             dir.tar(os, new DirScanner.Full());
-        } finally {
-            os.close();
         }
         tar.untar(root, FilePath.TarCompression.NONE);
         assertEquals("hello", remote.child("dir/stuff").readToString());

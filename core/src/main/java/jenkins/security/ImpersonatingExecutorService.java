@@ -29,10 +29,10 @@ import hudson.security.ACLContext;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import jenkins.util.InterceptingExecutorService;
-import org.acegisecurity.Authentication;
+import org.springframework.security.core.Authentication;
 
 /**
- * Uses {@link ACL#impersonate(Authentication)} for all tasks.
+ * Uses {@link ACL#impersonate2(Authentication)} for all tasks.
  * @see SecurityContextExecutorService
  * @since 2.51
  */
@@ -43,33 +43,36 @@ public final class ImpersonatingExecutorService extends InterceptingExecutorServ
     /**
      * Creates a wrapper service.
      * @param base the base service
-     * @param authentication for example {@link ACL#SYSTEM}
+     * @param authentication for example {@link ACL#SYSTEM2}
+     * @since 2.266
      */
     public ImpersonatingExecutorService(ExecutorService base, Authentication authentication) {
         super(base);
         this.authentication = authentication;
     }
 
+    /**
+     * @deprecated use {@link #ImpersonatingExecutorService(ExecutorService, Authentication)}
+     */
+    @Deprecated
+    public ImpersonatingExecutorService(ExecutorService base, org.acegisecurity.Authentication authentication) {
+        this(base, authentication.toSpring());
+    }
+
     @Override
     protected Runnable wrap(final Runnable r) {
-        return new Runnable() {
-            @Override
-            public void run() {
-                try (ACLContext ctxt = ACL.as(authentication)) {
-                    r.run();
-                }
+        return () -> {
+            try (ACLContext ctxt = ACL.as2(authentication)) {
+                r.run();
             }
         };
     }
 
     @Override
     protected <V> Callable<V> wrap(final Callable<V> r) {
-        return new Callable<V>() {
-            @Override
-            public V call() throws Exception {
-                try (ACLContext ctxt = ACL.as(authentication)) {
-                    return r.call();
-                }
+        return () -> {
+            try (ACLContext ctxt = ACL.as2(authentication)) {
+                return r.call();
             }
         };
     }

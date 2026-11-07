@@ -24,8 +24,11 @@
 
 package jenkins.management;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.Extension;
 import hudson.model.ManagementLink;
+import hudson.security.Permission;
+import jenkins.model.Jenkins;
 import org.jenkinsci.Symbol;
 
 /**
@@ -36,9 +39,10 @@ public class SystemLogLink extends ManagementLink {
 
     @Override
     public String getIconFileName() {
-        return "clipboard.png";
+        return "symbol-journal";
     }
 
+    @Override
     public String getDisplayName() {
         return Messages.SystemLogLink_DisplayName();
     }
@@ -51,5 +55,17 @@ public class SystemLogLink extends ManagementLink {
     @Override
     public String getUrlName() {
         return "log";
+    }
+
+    @NonNull
+    @Override
+    public Permission getRequiredPermission() {
+        return Jenkins.SYSTEM_READ;
+    }
+
+    @NonNull
+    @Override
+    public Category getCategory() {
+        return Category.STATUS;
     }
 }

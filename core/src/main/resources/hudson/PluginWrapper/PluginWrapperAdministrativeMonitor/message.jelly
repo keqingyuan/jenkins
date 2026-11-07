@@ -1,15 +1,15 @@
 <?jelly escape-by-default='true'?>
-<j:jelly xmlns:j="jelly:core" xmlns:f="/lib/form">
-  <div class="alert alert-danger" role="alert">
-    <form method="post" action="${rootURL}/${it.url}/act" name="${it.id}">
-      <f:submit name="correct" value="${%Correct}"/>
-    </form>
-    <p><strong>${%Dependency errors}:</strong></p>
-    <p>${%blurbOriginal}</p>
+<j:jelly xmlns:j="jelly:core" xmlns:f="/lib/form" xmlns:l="/lib/layout">
+  <j:set var="controls">
+    <a href="${rootURL}/pluginManager" class="jenkins-button jenkins-button--primary">${%Correct}</a>
+  </j:set>
+  <l:adminMonitor severity="danger" controls="${controls}">
+    ${%blurbOriginal}
+    <p><strong>${%DirectlyDependentPlugins.title}</strong></p>
     <j:forEach items="${it.plugins}" var="plugin">
       <j:if test="${plugin.hasOriginalDependencyErrors()}">
         <dl>
-          <dt>${plugin.longName} version ${plugin.version}</dt>
+          <dt>${plugin.longName} <span class="plugin_version">(${plugin.version})</span></dt>
           <j:forEach items="${plugin.originalDependencyErrors}" var="d">
             <dd>${d}</dd>
           </j:forEach>
@@ -17,12 +17,12 @@
       </j:if>
     </j:forEach>
     <j:if test="${it.hasAnyDerivedDependencyErrors()}">
-      <p><strong>${%Downstream dependency errors}:</strong></p>
       <p>${%blurbDerived}</p>
+      <p><strong>${%IndirectlyDependentPlugins.title}</strong></p>
       <dl>
         <j:forEach items="${it.plugins}" var="plugin">
           <j:if test="${plugin.hasDerivedDependencyErrors()}">
-            <dt>${plugin.displayName} version ${plugin.version}</dt>
+            <dt>${plugin.displayName} <span class="plugin_version">(${plugin.version})</span></dt>
             <j:forEach items="${plugin.derivedDependencyErrors}" var="d">
               <dd>${d}</dd>
             </j:forEach>
@@ -30,5 +30,5 @@
         </j:forEach>
       </dl>
     </j:if>
-  </div>
+  </l:adminMonitor>
 </j:jelly>

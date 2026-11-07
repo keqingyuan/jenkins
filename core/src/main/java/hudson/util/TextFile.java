@@ -1,18 +1,18 @@
 /*
  * The MIT License
- * 
+ *
  * Copyright (c) 2004-2009, Sun Microsystems, Inc., Kohsuke Kawaguchi
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in
  * all copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -21,15 +21,11 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package hudson.util;
 
-import edu.umd.cs.findbugs.annotations.CreatesObligation;
-
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.Util;
-import jenkins.util.io.LinesStream;
-
-import java.nio.file.Files;
-import javax.annotation.Nonnull;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
@@ -40,6 +36,8 @@ import java.io.Reader;
 import java.io.StringWriter;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.stream.Stream;
 
 /**
  * Represents a text file.
@@ -50,9 +48,9 @@ import java.nio.charset.StandardCharsets;
  */
 public class TextFile {
 
-    public final @Nonnull File file;
+    public final @NonNull File file;
 
-    public TextFile(@Nonnull File file) {
+    public TextFile(@NonNull File file) {
         this.file = file;
     }
 
@@ -60,8 +58,8 @@ public class TextFile {
         return file.exists();
     }
 
-    public void delete() {
-        file.delete();
+    public void delete() throws IOException {
+        Files.deleteIfExists(Util.fileToPath(file));
     }
 
     /**
@@ -81,62 +79,50 @@ public class TextFile {
     }
 
     /**
-     * @throws RuntimeException in the case of {@link IOException} in {@link #linesStream()}
-     * @deprecated This method does not properly propagate errors and may lead to file descriptor leaks
-     *             if the collection is not fully iterated. Use {@link #linesStream()} instead.
+     * Read all lines from the file as a {@link Stream}. Bytes from the file are decoded into
+     * characters using the {@link StandardCharsets#UTF_8 UTF-8} {@link Charset charset}. If timely
+     * disposal of file system resources is required, the try-with-resources construct should be
+     * used to ensure that {@link Stream#close()} is invoked after the stream operations are
+     * completed.
+     *
+     * @return the lines from the file as a {@link Stream}
+     * @throws IOException if an I/O error occurs opening the file
      */
-    @Deprecated
-    public @Nonnull Iterable<String> lines() {
-        try {
-            return linesStream();
-        } catch (IOException ex) {
-            throw new RuntimeException(ex);
-        }
-    }
-
-    /**
-     * Creates a new {@link jenkins.util.io.LinesStream} of the file.
-     * <p>
-     * Note: The caller is responsible for closing the returned
-     * <code>LinesStream</code>.
-     * @throws IOException if the file cannot be converted to a
-     * {@link java.nio.file.Path} or if the file cannot be opened for reading
-     * @since 2.111
-     */
-    @CreatesObligation
-    public @Nonnull LinesStream linesStream() throws IOException {
-        return new LinesStream(Util.fileToPath(file));
+    @NonNull
+    public Stream<String> lines() throws IOException {
+        return Files.lines(Util.fileToPath(file));
     }
 
     /**
      * Overwrites the file by the given string.
      */
     public void write(String text) throws IOException {
-        file.getParentFile().mkdirs();
-        AtomicFileWriter w = new AtomicFileWriter(file);
-        try {
-            w.write(text);
-            w.commit();
-        } finally {
-            w.abort();
+        Util.createDirectories(Util.fileToPath(file.getParentFile()));
+        try (AtomicFileWriter w = new AtomicFileWriter(file)) {
+            try {
+                w.write(text);
+                w.commit();
+            } finally {
+                w.abort();
+            }
         }
     }
 
     /**
      * Reads the first N characters or until we hit EOF.
      */
-    public @Nonnull String head(int numChars) throws IOException {
+    public @NonNull String head(int numChars) throws IOException {
         char[] buf = new char[numChars];
         int read = 0;
         try (Reader r = new FileReader(file)) {
-            while (read<numChars) {
-                int d = r.read(buf,read,buf.length-read);
-                if (d<0)
+            while (read < numChars) {
+                int d = r.read(buf, read, buf.length - read);
+                if (d < 0)
                     break;
                 read += d;
             }
 
-            return new String(buf,0,read);
+            return new String(buf, 0, read);
         }
     }
 
@@ -149,7 +135,7 @@ public class TextFile {
      * necessary chunk.
      *
      * <p>
-     * Some multi-byte encoding, such as Shift-JIS (http://en.wikipedia.org/wiki/Shift_JIS) doesn't
+     * Some multi-byte encoding, such as <a href="https://en.wikipedia.org/wiki/Shift_JIS">Shift-JIS</a>, doesn't
      * allow the first byte and the second byte of a single char to be unambiguously identified,
      * so it is possible that we end up decoding incorrectly if we start reading in the middle of a multi-byte
      * character. All the CJK multi-byte encodings that I know of are self-correcting; as they are ASCII-compatible,
@@ -170,7 +156,7 @@ public class TextFile {
      * <p>
      * So all in all, this algorithm should work decently, and it works quite efficiently on a large text.
      */
-    public @Nonnull String fastTail(int numChars, Charset cs) throws IOException {
+    public @NonNull String fastTail(int numChars, Charset cs) throws IOException {
 
         try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
             long len = raf.length();
@@ -184,15 +170,15 @@ public class TextFile {
 
             String tails = cs.decode(java.nio.ByteBuffer.wrap(tail)).toString();
 
-            return new String(tails.substring(Math.max(0, tails.length() - numChars))); // trim the baggage of substring by allocating a new String
+            return tails.substring(Math.max(0, tails.length() - numChars));
         }
     }
 
     /**
      * Uses the platform default encoding.
      */
-    public @Nonnull String fastTail(int numChars) throws IOException {
-        return fastTail(numChars,Charset.defaultCharset());
+    public @NonNull String fastTail(int numChars) throws IOException {
+        return fastTail(numChars, Charset.defaultCharset());
     }
 
 

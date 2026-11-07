@@ -25,10 +25,15 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package hudson.model;
 
-import antlr.ANTLRException;
+import static hudson.scm.PollingResult.BUILD_NOW;
+import static hudson.scm.PollingResult.NO_CHANGES;
+
 import com.infradna.tool.bridge_method_injector.WithBridgeMethods;
+import edu.umd.cs.findbugs.annotations.CheckForNull;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.AbortException;
 import hudson.CopyOnWrite;
 import hudson.EnvVars;
@@ -39,7 +44,6 @@ import hudson.Functions;
 import hudson.Launcher;
 import hudson.Util;
 import hudson.cli.declarative.CLIResolver;
-import hudson.model.Cause.LegacyCodeCause;
 import hudson.model.Descriptor.FormException;
 import hudson.model.Fingerprint.RangeSet;
 import hudson.model.Node.Mode;
@@ -54,8 +58,6 @@ import hudson.model.queue.SubTask;
 import hudson.model.queue.SubTaskContributor;
 import hudson.scm.NullSCM;
 import hudson.scm.PollingResult;
-
-import static hudson.scm.PollingResult.*;
 import hudson.scm.SCM;
 import hudson.scm.SCMRevisionState;
 import hudson.scm.SCMS;
@@ -75,7 +77,8 @@ import hudson.util.AlternativeUiTextProvider;
 import hudson.util.AlternativeUiTextProvider.Message;
 import hudson.util.DescribableList;
 import hudson.util.FormValidation;
-import hudson.widgets.HistoryWidget;
+import io.jenkins.servlet.ServletExceptionWrapper;
+import jakarta.servlet.ServletException;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -95,9 +98,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import javax.annotation.CheckForNull;
-import javax.annotation.Nonnull;
-import javax.servlet.ServletException;
 import jenkins.model.BlockedBecauseOfBuildInProgress;
 import jenkins.model.Jenkins;
 import jenkins.model.ParameterizedJobMixIn;
@@ -107,10 +107,10 @@ import jenkins.scm.DefaultSCMCheckoutStrategyImpl;
 import jenkins.scm.SCMCheckoutStrategy;
 import jenkins.scm.SCMCheckoutStrategyDescriptor;
 import jenkins.scm.SCMDecisionHandler;
+import jenkins.security.XStreamNotDeserializable;
 import jenkins.triggers.SCMTriggerItem;
 import jenkins.util.TimeDuration;
 import net.sf.json.JSONObject;
-import org.jenkinsci.bytecode.AdaptField;
 import org.kohsuke.accmod.Restricted;
 import org.kohsuke.accmod.restrictions.DoNotUse;
 import org.kohsuke.accmod.restrictions.NoExternalUse;
@@ -122,9 +122,12 @@ import org.kohsuke.stapler.HttpRedirect;
 import org.kohsuke.stapler.HttpResponse;
 import org.kohsuke.stapler.QueryParameter;
 import org.kohsuke.stapler.StaplerRequest;
+import org.kohsuke.stapler.StaplerRequest2;
 import org.kohsuke.stapler.StaplerResponse;
+import org.kohsuke.stapler.StaplerResponse2;
 import org.kohsuke.stapler.export.Exported;
 import org.kohsuke.stapler.interceptor.RequirePOST;
+import org.kohsuke.stapler.verb.POST;
 
 /**
  * Base implementation of {@link Job}s that build software.
@@ -135,7 +138,7 @@ import org.kohsuke.stapler.interceptor.RequirePOST;
  * @see AbstractBuild
  */
 @SuppressWarnings("rawtypes")
-public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends AbstractBuild<P,R>> extends Job<P,R> implements BuildableItem, LazyBuildMixIn.LazyLoadingJob<P,R>, ParameterizedJobMixIn.ParameterizedJob<P, R> {
+public abstract class AbstractProject<P extends AbstractProject<P, R>, R extends AbstractBuild<P, R>> extends Job<P, R> implements BuildableItem, LazyBuildMixIn.LazyLoadingJob<P, R>, ParameterizedJobMixIn.ParameterizedJob<P, R> {
 
     /**
      * {@link SCM} associated with the project.
@@ -152,9 +155,10 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
     /**
      * State returned from {@link SCM#poll(AbstractProject, Launcher, FilePath, TaskListener, SCMRevisionState)}.
      */
-    private volatile transient SCMRevisionState pollingBaseline = null;
+    private transient volatile SCMRevisionState pollingBaseline = null;
 
-    private transient LazyBuildMixIn<P,R> buildMixIn;
+    @XStreamNotDeserializable
+    private transient LazyBuildMixIn<P, R> buildMixIn;
 
     /**
      * All the builds keyed by their build number.
@@ -163,6 +167,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      * {@link Run#getPreviousBuild()}
      */
     @Restricted(NoExternalUse.class)
+    @XStreamNotDeserializable
     protected transient RunMap<R> builds;
 
     /**
@@ -230,10 +235,9 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
     /**
      * List of all {@link Trigger}s for this project.
      */
-    @AdaptField(was=List.class)
-    protected volatile DescribableList<Trigger<?>,TriggerDescriptor> triggers = new DescribableList<Trigger<?>,TriggerDescriptor>(this);
-    private static final AtomicReferenceFieldUpdater<AbstractProject,DescribableList> triggersUpdater
-            = AtomicReferenceFieldUpdater.newUpdater(AbstractProject.class,DescribableList.class,"triggers");
+    protected volatile DescribableList<Trigger<?>, TriggerDescriptor> triggers = new DescribableList<>(this);
+    private static final AtomicReferenceFieldUpdater<AbstractProject, DescribableList> triggersUpdater
+            = AtomicReferenceFieldUpdater.newUpdater(AbstractProject.class, DescribableList.class, "triggers");
 
     /**
      * {@link Action}s contributed from subsidiary objects associated with
@@ -243,7 +247,8 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      * come and go as configuration change, so it's kept separate.
      */
     @CopyOnWrite
-    protected transient volatile List<Action> transientActions = new Vector<Action>();
+    @XStreamNotDeserializable
+    protected transient volatile List<Action> transientActions = new Vector<>();
 
     private boolean concurrentBuild;
 
@@ -255,32 +260,32 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
     private String customWorkspace;
 
     protected AbstractProject(ItemGroup parent, String name) {
-        super(parent,name);
+        super(parent, name);
         buildMixIn = createBuildMixIn();
         builds = buildMixIn.getRunMap();
 
-        final Jenkins j = Jenkins.getInstance();
-        final List<Node> nodes = j != null ? j.getNodes() : null;
-        if(nodes!=null && !nodes.isEmpty()) {
+        Jenkins j = Jenkins.getInstanceOrNull();
+        if (j != null && !j.getNodes().isEmpty()) {
             // if a new job is configured with Hudson that already has agent nodes
             // make it roamable by default
             canRoam = true;
         }
     }
 
-    private LazyBuildMixIn<P,R> createBuildMixIn() {
-        return new LazyBuildMixIn<P,R>() {
+    private LazyBuildMixIn<P, R> createBuildMixIn() {
+        return new LazyBuildMixIn<>() {
             @SuppressWarnings("unchecked") // untypable
             @Override protected P asJob() {
                 return (P) AbstractProject.this;
             }
+
             @Override protected Class<R> getBuildClass() {
                 return AbstractProject.this.getBuildClass();
             }
         };
     }
 
-    @Override public LazyBuildMixIn<P,R> getLazyBuildMixIn() {
+    @Override public LazyBuildMixIn<P, R> getLazyBuildMixIn() {
         return buildMixIn;
     }
 
@@ -315,24 +320,25 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
                 LOGGER.log(Level.WARNING, "could not start trigger while loading project '" + getFullName() + "'", e);
             }
         }
-        if(scm==null)
+        if (scm == null)
             scm = new NullSCM(); // perhaps it was pointing to a plugin that no longer exists.
 
-        if(transientActions==null)
-            transientActions = new Vector<Action>();    // happens when loaded from disk
+        if (transientActions == null)
+            transientActions = new Vector<>();    // happens when loaded from disk
         updateTransientActions();
     }
 
     @WithBridgeMethods(List.class)
-    protected DescribableList<Trigger<?>,TriggerDescriptor> triggers() {
+    protected DescribableList<Trigger<?>, TriggerDescriptor> triggers() {
         if (triggers == null) {
-            triggersUpdater.compareAndSet(this,null,new DescribableList<Trigger<?>,TriggerDescriptor>(this));
+            triggersUpdater.compareAndSet(this, null, new DescribableList<Trigger<?>, TriggerDescriptor>(this));
         }
         return triggers;
     }
 
+    @NonNull
     @Override
-    public EnvVars getEnvironment(Node node, TaskListener listener) throws IOException, InterruptedException {
+    public EnvVars getEnvironment(@CheckForNull Node node, @NonNull TaskListener listener) throws IOException, InterruptedException {
         EnvVars env =  super.getEnvironment(node, listener);
 
         JDK jdkTool = getJDK();
@@ -351,13 +357,14 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
     @Override
     protected void performDelete() throws IOException, InterruptedException {
         // prevent a new build while a delete operation is in progress
-        makeDisabled(true);
+        if (supportsMakeDisabled()) {
+            setDisabled(true);
+            Jenkins.get().getQueue().cancel(this);
+        }
         FilePath ws = getWorkspace();
-        if(ws!=null) {
+        if (ws != null) {
             Node on = getLastBuiltOn();
             getScm().processWorkspaceBeforeDeletion(this, ws, on);
-            if(on!=null)
-                on.getFileSystemProvisioner().discardWorkspace(this,ws);
         }
         super.performDelete();
     }
@@ -367,6 +374,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      * @since 1.319
      */
     @Exported
+    @Override
     public boolean isConcurrentBuild() {
         return concurrentBuild;
     }
@@ -380,13 +388,14 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      * If this project is configured to be always built on this node,
      * return that {@link Node}. Otherwise null.
      */
+    @Override
     public @CheckForNull Label getAssignedLabel() {
-        if(canRoam)
+        if (canRoam)
             return null;
 
-        if(assignedNode==null)
-            return Jenkins.getInstance().getSelfLabel();
-        return Jenkins.getInstance().getLabel(assignedNode);
+        if (assignedNode == null)
+            return Jenkins.get().getSelfLabel();
+        return Jenkins.get().getLabel(assignedNode);
     }
 
     /**
@@ -407,13 +416,13 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
     /**
      * Gets the textual representation of the assigned label as it was entered by the user.
      */
-    @Exported(name="labelExpression")
+    @Exported(name = "labelExpression")
     public String getAssignedLabelString() {
-        if (canRoam || assignedNode==null)    return null;
+        if (canRoam || assignedNode == null)    return null;
         try {
-            LabelExpression.parseExpression(assignedNode);
+            Label.parseExpression(assignedNode);
             return assignedNode;
-        } catch (ANTLRException e) {
+        } catch (IllegalArgumentException e) {
             // must be old label or host name that includes whitespace or other unsafe chars
             return LabelAtom.escape(assignedNode);
         }
@@ -423,12 +432,12 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      * Sets the assigned label.
      */
     public void setAssignedLabel(Label l) throws IOException {
-        if(l==null) {
+        if (l == null) {
             canRoam = true;
             assignedNode = null;
         } else {
             canRoam = false;
-            if(l== Jenkins.getInstance().getSelfLabel())  assignedNode = null;
+            if (l == Jenkins.get().getSelfLabel())  assignedNode = null;
             else                                        assignedNode = l.getExpression();
         }
         save();
@@ -447,7 +456,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      */
     @Override
     public String getPronoun() {
-        return AlternativeUiTextProvider.get(PRONOUN, this,Messages.AbstractProject_Pronoun());
+        return AlternativeUiTextProvider.get(PRONOUN, this, Messages.AbstractProject_Pronoun());
     }
 
     /**
@@ -455,6 +464,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      *
      * @since 1.401
      */
+    @Override
     public String getBuildNowText() {
         // For compatibility, still use the deprecated replacer if specified.
         return AlternativeUiTextProvider.get(BUILD_NOW_TEXT, this, ParameterizedJobMixIn.ParameterizedJob.super.getBuildNowText());
@@ -471,7 +481,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      * @return never null.
      * @see AbstractBuild#getRootBuild()
      */
-    public AbstractProject<?,?> getRootProject() {
+    public AbstractProject<?, ?> getRootProject() {
         if (this instanceof TopLevelItem) {
             return this;
         } else {
@@ -510,19 +520,17 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      *
      * @return An AbstractBuild for deprecated methods to use.
      */
+    @CheckForNull
     private AbstractBuild getBuildForDeprecatedMethods() {
         Executor e = Executor.currentExecutor();
-        if(e!=null) {
+        if (e != null) {
             Executable exe = e.getCurrentExecutable();
-            if (exe instanceof AbstractBuild) {
-                AbstractBuild b = (AbstractBuild) exe;
-                if(b.getProject()==this)
+            if (exe instanceof AbstractBuild b) {
+                if (b.getProject() == this)
                     return b;
             }
         }
-        R lb = getLastBuild();
-        if(lb!=null)    return lb;
-        return null;
+        return getLastBuild();
     }
 
     /**
@@ -539,7 +547,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      */
     public final @CheckForNull FilePath getSomeWorkspace() {
         R b = getSomeBuildWithWorkspace();
-        if (b!=null) return b.getWorkspace();
+        if (b != null) return b.getWorkspace();
         for (WorkspaceBrowser browser : ExtensionList.lookup(WorkspaceBrowser.class)) {
             FilePath f = browser.getWorkspace(this);
             if (f != null) return f;
@@ -553,19 +561,17 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      * @return null if no such build exists.
      */
     public final R getSomeBuildWithWorkspace() {
-        int cnt=0;
-        for (R b = getLastBuild(); cnt<5 && b!=null; b=b.getPreviousBuild()) {
+        for (R b = getLastBuild(); b != null; b = b.getPreviousBuild()) {
             FilePath ws = b.getWorkspace();
-            if (ws!=null)   return b;
+            if (ws != null)   return b;
         }
         return null;
     }
 
     private R getSomeBuildWithExistingWorkspace() throws IOException, InterruptedException {
-        int cnt=0;
-        for (R b = getLastBuild(); cnt<5 && b!=null; b=b.getPreviousBuild()) {
+        for (R b = getLastBuild(); b != null; b = b.getPreviousBuild()) {
             FilePath ws = b.getWorkspace();
-            if (ws!=null && ws.exists())   return b;
+            if (ws != null && ws.exists())   return b;
         }
         return null;
     }
@@ -601,8 +607,9 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
         return b != null ? b.getModuleRoots() : null;
     }
 
+    @Override
     public int getQuietPeriod() {
-        return quietPeriod!=null ? quietPeriod : Jenkins.getInstance().getQuietPeriod();
+        return quietPeriod != null ? quietPeriod : Jenkins.get().getQuietPeriod();
     }
 
     public SCMCheckoutStrategy getScmCheckoutStrategy() {
@@ -616,12 +623,12 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
 
 
     public int getScmCheckoutRetryCount() {
-        return scmCheckoutRetryCount !=null ? scmCheckoutRetryCount : Jenkins.getInstance().getScmCheckoutRetryCount();
+        return scmCheckoutRetryCount != null ? scmCheckoutRetryCount : Jenkins.get().getScmCheckoutRetryCount();
     }
 
     // ugly name because of EL
     public boolean getHasCustomQuietPeriod() {
-        return quietPeriod!=null;
+        return quietPeriod != null;
     }
 
     /**
@@ -632,7 +639,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
         save();
     }
 
-    public boolean hasCustomScmCheckoutRetryCount(){
+    public boolean hasCustomScmCheckoutRetryCount() {
         return scmCheckoutRetryCount != null;
     }
 
@@ -668,6 +675,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
     }
 
     @Override
+    @Exported
     public boolean isDisabled() {
         return disabled;
     }
@@ -681,9 +689,9 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
     /**
      * Validates the retry count Regex
      */
-    public FormValidation doCheckRetryCount(@QueryParameter String value)throws IOException,ServletException{
+    public FormValidation doCheckRetryCount(@QueryParameter String value)throws IOException, ServletException {
         // retry count is optional so this is ok
-        if(value == null || value.trim().equals(""))
+        if (value == null || value.trim().isEmpty())
             return FormValidation.ok();
         if (!value.matches("[0-9]*")) {
             return FormValidation.error("Invalid retry count");
@@ -714,7 +722,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
 
     @Override
     public BallColor getIconColor() {
-        if(isDisabled())
+        if (isDisabled())
             return isBuilding() ? BallColor.DISABLED_ANIME : BallColor.DISABLED;
         else
             return super.getIconColor();
@@ -732,15 +740,15 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
     }
 
     protected List<Action> createTransientActions() {
-        Vector<Action> ta = new Vector<Action>();
+        Vector<Action> ta = new Vector<>();
 
         for (JobProperty<? super P> p : Util.fixNull(properties))
-            ta.addAll(p.getJobActions((P)this));
+            ta.addAll(p.getJobActions((P) this));
 
         for (TransientProjectActionFactory tpaf : TransientProjectActionFactory.all()) {
             try {
                 ta.addAll(Util.fixNull(tpaf.createFor(this))); // be defensive against null
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
                 LOGGER.log(Level.SEVERE, "Could not load actions from " + tpaf + " for " + this, e);
             }
         }
@@ -754,7 +762,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      * This method couldn't be called {@code getPublishers()} because existing methods
      * in sub-classes return different inconsistent types.
      */
-    public abstract DescribableList<Publisher,Descriptor<Publisher>> getPublishersList();
+    public abstract DescribableList<Publisher, Descriptor<Publisher>> getPublishersList();
 
     @Override
     public void addProperty(JobProperty<? super P> jobProp) throws IOException {
@@ -767,17 +775,17 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
     }
 
     @Override
-    @RequirePOST
-    public void doConfigSubmit( StaplerRequest req, StaplerResponse rsp ) throws IOException, ServletException, FormException {
-        super.doConfigSubmit(req,rsp);
+    @POST
+    public void doConfigSubmit(StaplerRequest2 req, StaplerResponse2 rsp) throws IOException, ServletException, FormException {
+        super.doConfigSubmit(req, rsp);
 
         updateTransientActions();
 
         // notify the queue as the project might be now tied to different node
-        Jenkins.getInstance().getQueue().scheduleMaintenance();
+        Jenkins.get().getQueue().scheduleMaintenance();
 
         // this is to reflect the upstream build adjustments done above
-        Jenkins.getInstance().rebuildDependencyGraphAsync();
+        Jenkins.get().rebuildDependencyGraphAsync();
     }
 
     /**
@@ -793,7 +801,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      * @return whether the build was actually scheduled
      */
     public boolean scheduleBuild(int quietPeriod, Cause c, Action... actions) {
-        return scheduleBuild2(quietPeriod,c,actions)!=null;
+        return scheduleBuild2(quietPeriod, c, actions) != null;
     }
 
     /**
@@ -805,7 +813,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      */
     @WithBridgeMethods(Future.class)
     public QueueTaskFuture<R> scheduleBuild2(int quietPeriod, Cause c, Action... actions) {
-        return scheduleBuild2(quietPeriod,c,Arrays.asList(actions));
+        return scheduleBuild2(quietPeriod, c, Arrays.asList(actions));
     }
 
     /**
@@ -818,11 +826,11 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      */
     @WithBridgeMethods(Future.class)
     public QueueTaskFuture<R> scheduleBuild2(int quietPeriod, Cause c, Collection<? extends Action> actions) {
-        List<Action> queueActions = new ArrayList<Action>(actions);
+        List<Action> queueActions = new ArrayList<>(actions);
         if (c != null) {
             queueActions.add(new CauseAction(c));
         }
-        return scheduleBuild2(quietPeriod, queueActions.toArray(new Action[queueActions.size()]));
+        return scheduleBuild2(quietPeriod, queueActions.toArray(new Action[0]));
     }
 
     /**
@@ -836,7 +844,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
     @SuppressWarnings("deprecation")
     @WithBridgeMethods(Future.class)
     public QueueTaskFuture<R> scheduleBuild2(int quietPeriod) {
-        return scheduleBuild2(quietPeriod, new LegacyCodeCause());
+        return scheduleBuild2(quietPeriod, new Cause.LegacyCodeCause());
     }
 
     /**
@@ -858,9 +866,9 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      * @see SCMTriggerItem#schedulePolling
      */
     public boolean schedulePolling() {
-        if(isDisabled())    return false;
+        if (isDisabled())    return false;
         SCMTrigger scmt = getTrigger(SCMTrigger.class);
-        if(scmt==null)      return false;
+        if (scmt == null)      return false;
         scmt.run();
         return true;
     }
@@ -870,19 +878,19 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      */
     @Override
     public boolean isInQueue() {
-        return Jenkins.getInstance().getQueue().contains(this);
+        return Jenkins.get().getQueue().contains(this);
     }
 
     @Override
     public Queue.Item getQueueItem() {
-        return Jenkins.getInstance().getQueue().getItem(this);
+        return Jenkins.get().getQueue().getItem(this);
     }
 
     /**
      * Gets the JDK that this project is configured with, or null.
      */
     public JDK getJDK() {
-        return Jenkins.getInstance().getJDK(jdk);
+        return Jenkins.get().getJDK(jdk);
     }
 
     /**
@@ -893,6 +901,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
         save();
     }
 
+    @Override
     public BuildAuthorizationToken getAuthToken() {
         return authToken;
     }
@@ -952,6 +961,11 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
         return buildMixIn.getNearestOldBuild(n);
     }
 
+    @Override
+    protected List<R> getEstimatedDurationCandidates() {
+        return buildMixIn.getEstimatedDurationCandidates();
+    }
+
     /**
      * Type token for the corresponding build type.
      * The build class must have two constructors:
@@ -985,10 +999,11 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      * @see TransientProjectActionFactory
      */
     @SuppressWarnings("deprecation")
+    @NonNull
     @Override
     public List<Action> getActions() {
         // add all the transient actions, too
-        List<Action> actions = new Vector<Action>(super.getActions());
+        List<Action> actions = new Vector<>(super.getActions());
         actions.addAll(transientActions);
         // return the read only list to cause a failure on plugins who try to add an action here
         return Collections.unmodifiableList(actions);
@@ -1003,15 +1018,18 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      *      null if no information is available (for example,
      *      if no build was done yet.)
      */
+    @SuppressWarnings("deprecation")
+    @Override
     public Node getLastBuiltOn() {
         // where was it built on?
         AbstractBuild b = getLastBuild();
-        if(b==null)
+        if (b == null)
             return null;
         else
             return b.getBuiltOn();
     }
 
+    @Override
     public Object getSameNodeConstraint() {
         return this; // in this way, any member that wants to run with the main guy can nominate the project itself
     }
@@ -1021,7 +1039,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      */
     @Deprecated
     public static class BecauseOfBuildInProgress extends BlockedBecauseOfBuildInProgress {
-        public BecauseOfBuildInProgress(@Nonnull AbstractBuild<?, ?> build) {
+        public BecauseOfBuildInProgress(@NonNull AbstractBuild<?, ?> build) {
             super(build);
         }
     }
@@ -1030,9 +1048,9 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      * Because the downstream build is in progress, and we are configured to wait for that.
      */
     public static class BecauseOfDownstreamBuildInProgress extends CauseOfBlockage {
-        public final AbstractProject<?,?> up;
+        public final AbstractProject<?, ?> up;
 
-        public BecauseOfDownstreamBuildInProgress(AbstractProject<?,?> up) {
+        public BecauseOfDownstreamBuildInProgress(AbstractProject<?, ?> up) {
             this.up = up;
         }
 
@@ -1046,9 +1064,9 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      * Because the upstream build is in progress, and we are configured to wait for that.
      */
     public static class BecauseOfUpstreamBuildInProgress extends CauseOfBlockage {
-        public final AbstractProject<?,?> up;
+        public final AbstractProject<?, ?> up;
 
-        public BecauseOfUpstreamBuildInProgress(AbstractProject<?,?> up) {
+        public BecauseOfUpstreamBuildInProgress(AbstractProject<?, ?> up) {
             this.up = up;
         }
 
@@ -1075,19 +1093,19 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
                 return new BlockedBecauseOfBuildInProgress(lastBuild);
             } else {
                 // The build has been likely deleted after the isLogUpdated() call.
-                // Another cause may be an API implementation glitсh in the implementation for AbstractProject. 
+                // Another cause may be an API implementation glitch in the implementation for AbstractProject.
                 // Anyway, we should let the code go then.
                 LOGGER.log(Level.FINE, "The last build has been deleted during the non-concurrent cause creation. The build is not blocked anymore");
             }
         }
         if (blockBuildWhenDownstreamBuilding()) {
-            AbstractProject<?,?> bup = getBuildingDownstream();
-            if (bup!=null)
+            AbstractProject<?, ?> bup = getBuildingDownstream();
+            if (bup != null)
                 return new BecauseOfDownstreamBuildInProgress(bup);
         }
         if (blockBuildWhenUpstreamBuilding()) {
-            AbstractProject<?,?> bup = getBuildingUpstream();
-            if (bup!=null)
+            AbstractProject<?, ?> bup = getBuildingUpstream();
+            if (bup != null)
                 return new BecauseOfUpstreamBuildInProgress(bup);
         }
         return null;
@@ -1095,16 +1113,28 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
 
     /**
      * Returns the project if any of the downstream project is either
-     * building, waiting, pending or buildable.
+     * building, or queued and not blocked by an upstream/downstream project build.
      * <p>
      * This means eventually there will be an automatic triggering of
      * the given project (provided that all builds went smoothly.)
      */
     public AbstractProject getBuildingDownstream() {
-        Set<Task> unblockedTasks = Jenkins.getInstance().getQueue().getUnblockedTasks();
+        // Unblocked downstream tasks must block this project.
+        Set<Task> tasks = Jenkins.get().getQueue().getUnblockedTasks();
+        // Blocked downstream tasks must block this project.
+        // Projects blocked by upstream or downstream builds
+        // are ignored to break deadlocks.
+        for (Queue.BlockedItem item : Jenkins.get().getQueue().getBlockedItems()) {
+            if (item.isCauseOfBlockageNull() ||
+                    item.getCauseOfBlockage() instanceof AbstractProject.BecauseOfUpstreamBuildInProgress ||
+                    item.getCauseOfBlockage() instanceof AbstractProject.BecauseOfDownstreamBuildInProgress) {
+                continue;
+            }
+            tasks.add(item.task);
+        }
 
         for (AbstractProject tup : getTransitiveDownstreamProjects()) {
-			if (tup!=this && (tup.isBuilding() || unblockedTasks.contains(tup)))
+            if (tup != this && (tup.isBuilding() || tasks.contains(tup)))
                 return tup;
         }
         return null;
@@ -1112,23 +1142,36 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
 
     /**
      * Returns the project if any of the upstream project is either
-     * building or is in the queue.
+     * building, or queued and not blocked by an upstream/downstream project build.
      * <p>
      * This means eventually there will be an automatic triggering of
      * the given project (provided that all builds went smoothly.)
      */
     public AbstractProject getBuildingUpstream() {
-        Set<Task> unblockedTasks = Jenkins.getInstance().getQueue().getUnblockedTasks();
+        // Unblocked upstream tasks must block this project.
+        Set<Task> tasks = Jenkins.get().getQueue().getUnblockedTasks();
+        // Blocked upstream tasks must block this project.
+        // Projects blocked by upstream or downstream builds
+        // are ignored to break deadlocks.
+        for (Queue.BlockedItem item : Jenkins.get().getQueue().getBlockedItems()) {
+            if (item.isCauseOfBlockageNull() ||
+                    item.getCauseOfBlockage() instanceof AbstractProject.BecauseOfUpstreamBuildInProgress ||
+                    item.getCauseOfBlockage() instanceof AbstractProject.BecauseOfDownstreamBuildInProgress) {
+                continue;
+            }
+            tasks.add(item.task);
+        }
 
         for (AbstractProject tup : getTransitiveUpstreamProjects()) {
-			if (tup!=this && (tup.isBuilding() || unblockedTasks.contains(tup)))
+            if (tup != this && (tup.isBuilding() || tasks.contains(tup)))
                 return tup;
         }
         return null;
     }
 
+    @Override
     public List<SubTask> getSubTasks() {
-        List<SubTask> r = new ArrayList<SubTask>();
+        List<SubTask> r = new ArrayList<>();
         r.add(this);
         for (SubTaskContributor euc : SubTaskContributor.all())
             r.addAll(euc.forProject(this));
@@ -1139,14 +1182,16 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
 
     @Override // same as ParameterizedJob version except calls possibly overridden newBuild
     public @CheckForNull R createExecutable() throws IOException {
-        if(isDisabled())    return null;
+        if (isDisabled())    return null;
         return newBuild();
     }
 
+    @Override
     public void checkAbortPermission() {
         checkPermission(CANCEL);
     }
 
+    @Override
     public boolean hasAbortPermission() {
         return hasPermission(CANCEL);
     }
@@ -1166,15 +1211,16 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      */
     @Deprecated
     public Resource getWorkspaceResource() {
-        return new Resource(getFullDisplayName()+" workspace");
+        return new Resource(getFullDisplayName() + " workspace");
     }
 
     /**
      * List of necessary resources to perform the build of this project.
      */
+    @Override
     public ResourceList getResourceList() {
         final Set<ResourceActivity> resourceActivities = getResourceActivities();
-        final List<ResourceList> resourceLists = new ArrayList<ResourceList>(1 + resourceActivities.size());
+        final List<ResourceList> resourceLists = new ArrayList<>(1 + resourceActivities.size());
         for (ResourceActivity activity : resourceActivities) {
             if (activity != this && activity != null) {
                 // defensive infinite recursion and null check
@@ -1194,11 +1240,11 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
 
     public boolean checkout(AbstractBuild build, Launcher launcher, BuildListener listener, File changelogFile) throws IOException, InterruptedException {
         SCM scm = getScm();
-        if(scm==null)
+        if (scm == null)
             return true;    // no SCM
 
         FilePath workspace = build.getWorkspace();
-        if(workspace!=null){
+        if (workspace != null) {
             workspace.mkdirs();
         } else {
             throw new AbortException("Cannot checkout SCM, workspace is not defined");
@@ -1219,13 +1265,13 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      */
     private void calcPollingBaseline(AbstractBuild build, Launcher launcher, TaskListener listener) throws IOException, InterruptedException {
         SCMRevisionState baseline = build.getAction(SCMRevisionState.class);
-        if (baseline==null) {
+        if (baseline == null) {
             try {
                 baseline = getScm().calcRevisionsFromBuild(build, launcher, listener);
             } catch (AbstractMethodError e) {
                 baseline = SCMRevisionState.NONE; // pre-1.345 SCM implementations, which doesn't use the baseline in polling
             }
-            if (baseline!=null)
+            if (baseline != null)
                 build.addAction(baseline);
         }
         pollingBaseline = baseline;
@@ -1238,7 +1284,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      *      Use {@link #poll(TaskListener)} instead.
      */
     @Deprecated
-    public boolean pollSCMChanges( TaskListener listener ) {
+    public boolean pollSCMChanges(TaskListener listener) {
         return poll(listener).hasChanges();
     }
 
@@ -1251,9 +1297,9 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      *
      * @since 1.345
      */
-    public PollingResult poll( TaskListener listener ) {
+    public PollingResult poll(TaskListener listener) {
         SCM scm = getScm();
-        if (scm==null) {
+        if (scm == null) {
             listener.getLogger().println(Messages.AbstractProject_NoSCM());
             return NO_CHANGES;
         }
@@ -1268,20 +1314,20 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
         }
 
         R lb = getLastBuild();
-        if (lb==null) {
+        if (lb == null) {
             listener.getLogger().println(Messages.AbstractProject_NoBuilds());
             return isInQueue() ? NO_CHANGES : BUILD_NOW;
         }
 
-        if (pollingBaseline==null) {
+        if (pollingBaseline == null) {
             R success = getLastSuccessfulBuild(); // if we have a persisted baseline, we'll find it by this
-            for (R r=lb; r!=null; r=r.getPreviousBuild()) {
+            for (R r = lb; r != null; r = r.getPreviousBuild()) {
                 SCMRevisionState s = r.getAction(SCMRevisionState.class);
-                if (s!=null) {
+                if (s != null) {
                     pollingBaseline = s;
                     break;
                 }
-                if (r==success) break;  // searched far enough
+                if (r == success) break;  // searched far enough
             }
             // NOTE-NO-BASELINE:
             // if we don't have baseline yet, it means the data is built by old Hudson that doesn't set the baseline
@@ -1291,27 +1337,24 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
         try {
             SCMPollListener.fireBeforePolling(this, listener);
             PollingResult r = _poll(listener, scm);
-            SCMPollListener.firePollingSuccess(this,listener, r);
+            SCMPollListener.firePollingSuccess(this, listener, r);
             return r;
         } catch (AbortException e) {
             listener.getLogger().println(e.getMessage());
             listener.fatalError(Messages.AbstractProject_Aborted());
-            LOGGER.log(Level.FINE, "Polling "+this+" aborted",e);
-            SCMPollListener.firePollingFailed(this, listener,e);
+            LOGGER.log(Level.FINE, "Polling " + this + " aborted", e);
+            SCMPollListener.firePollingFailed(this, listener, e);
             return NO_CHANGES;
         } catch (IOException e) {
             Functions.printStackTrace(e, listener.fatalError(e.getMessage()));
-            SCMPollListener.firePollingFailed(this, listener,e);
+            SCMPollListener.firePollingFailed(this, listener, e);
             return NO_CHANGES;
         } catch (InterruptedException e) {
             Functions.printStackTrace(e, listener.fatalError(Messages.AbstractProject_PollingABorted()));
-            SCMPollListener.firePollingFailed(this, listener,e);
+            SCMPollListener.firePollingFailed(this, listener, e);
             return NO_CHANGES;
-        } catch (RuntimeException e) {
-            SCMPollListener.firePollingFailed(this, listener,e);
-            throw e;
-        } catch (Error e) {
-            SCMPollListener.firePollingFailed(this, listener,e);
+        } catch (RuntimeException | Error e) {
+            SCMPollListener.firePollingFailed(this, listener, e);
             throw e;
         }
     }
@@ -1324,10 +1367,10 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
             R b = getSomeBuildWithExistingWorkspace();
             if (b == null) b = getLastBuild();
             // lock the workspace for the given build
-            FilePath ws=b.getWorkspace();
+            FilePath ws = b.getWorkspace();
 
-            WorkspaceOfflineReason workspaceOfflineReason = workspaceOffline( b );
-            if ( workspaceOfflineReason != null ) {
+            WorkspaceOfflineReason workspaceOfflineReason = workspaceOffline(b);
+            if (workspaceOfflineReason != null) {
                 // workspace offline
                 for (WorkspaceBrowser browser : ExtensionList.lookup(WorkspaceBrowser.class)) {
                     ws = browser.getWorkspace(this);
@@ -1340,19 +1383,19 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
                 // because otherwise there's no way we can detect changes.
                 // However, first there are some conditions in which we do not want to do so.
                 // give time for agents to come online if we are right after reconnection (JENKINS-8408)
-                long running = Jenkins.getInstance().getInjector().getInstance(Uptime.class).getUptime();
-                long remaining = TimeUnit.MINUTES.toMillis(10)-running;
-                if (remaining>0 && /* this logic breaks tests of polling */!Functions.getIsUnitTest()) {
-                    listener.getLogger().print(Messages.AbstractProject_AwaitingWorkspaceToComeOnline(remaining/1000));
-                    listener.getLogger().println( " (" + workspaceOfflineReason.name() + ")");
+                long running = Jenkins.get().getInjector().getInstance(Uptime.class).getUptime();
+                long remaining = TimeUnit.MINUTES.toMillis(10) - running;
+                if (remaining > 0 && /* this logic breaks tests of polling */!Functions.getIsUnitTest()) {
+                    listener.getLogger().print(Messages.AbstractProject_AwaitingWorkspaceToComeOnline(remaining / 1000));
+                    listener.getLogger().println(" (" + workspaceOfflineReason.name() + ")");
                     return NO_CHANGES;
                 }
 
                 // Do not trigger build, if no suitable agent is online
                 if (workspaceOfflineReason.equals(WorkspaceOfflineReason.all_suitable_nodes_are_offline)) {
                     // No suitable executor is online
-                    listener.getLogger().print(Messages.AbstractProject_AwaitingWorkspaceToComeOnline(running/1000));
-                    listener.getLogger().println( " (" + workspaceOfflineReason.name() + ")");
+                    listener.getLogger().print(Messages.AbstractProject_AwaitingWorkspaceToComeOnline(running / 1000));
+                    listener.getLogger().println(" (" + workspaceOfflineReason.name() + ")");
                     return NO_CHANGES;
                 }
 
@@ -1361,11 +1404,11 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
                     // if the build is fixed on a node, then attempting a build will do us
                     // no good. We should just wait for the agent to come back.
                     listener.getLogger().print(Messages.AbstractProject_NoWorkspace());
-                    listener.getLogger().println( " (" + workspaceOfflineReason.name() + ")");
+                    listener.getLogger().println(" (" + workspaceOfflineReason.name() + ")");
                     return NO_CHANGES;
                 }
 
-                listener.getLogger().println( ws==null
+                listener.getLogger().println(ws == null
                     ? Messages.AbstractProject_WorkspaceOffline()
                     : Messages.AbstractProject_NoWorkspace());
                 if (isInQueue()) {
@@ -1375,7 +1418,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
 
                 // build now, or nothing will ever be built
                 listener.getLogger().print(Messages.AbstractProject_NewBuildForWorkspace());
-                listener.getLogger().println( " (" + workspaceOfflineReason.name() + ")");
+                listener.getLogger().println(" (" + workspaceOfflineReason.name() + ")");
                 return BUILD_NOW;
             } else {
                 WorkspaceList l = b.getBuiltOn().toComputer().getWorkspaceList();
@@ -1385,15 +1428,15 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
         } else {
             // polling without workspace
             LOGGER.fine("Polling SCM changes of " + getName());
-            if (pollingBaseline==null) // see NOTE-NO-BASELINE above
-                calcPollingBaseline(getLastBuild(),null,listener);
+            if (pollingBaseline == null) // see NOTE-NO-BASELINE above
+                calcPollingBaseline(getLastBuild(), null, listener);
             PollingResult r = scm.poll(this, null, null, listener, pollingBaseline);
             pollingBaseline = r.remote;
             return r;
         }
     }
 
-    private PollingResult pollWithWorkspace(TaskListener listener, SCM scm, R lb, @Nonnull FilePath ws, WorkspaceList l) throws InterruptedException, IOException {
+    private PollingResult pollWithWorkspace(TaskListener listener, SCM scm, R lb, @NonNull FilePath ws, WorkspaceList l) throws InterruptedException, IOException {
         // if doing non-concurrent build, acquire a workspace in a way that causes builds to block for this workspace.
         // this prevents multiple workspaces of the same job --- the behavior of Hudson < 1.319.
         //
@@ -1401,14 +1444,14 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
         // so better throughput is achieved over time (modulo the initial cost of creating that many workspaces)
         // by having multiple workspaces
         Node node = lb.getBuiltOn();
-        Launcher launcher = ws.createLauncher(listener).decorateByEnv(getEnvironment(node,listener));
+        Launcher launcher = ws.createLauncher(listener).decorateByEnv(getEnvironment(node, listener));
         WorkspaceList.Lease lease = l.acquire(ws, !concurrentBuild);
         try {
             String nodeName = node != null ? node.getSelfLabel().getName() : "[node_unavailable]";
             listener.getLogger().println("Polling SCM changes on " + nodeName);
             LOGGER.fine("Polling SCM changes of " + getName());
-            if (pollingBaseline==null) // see NOTE-NO-BASELINE above
-                calcPollingBaseline(lb,launcher,listener);
+            if (pollingBaseline == null) // see NOTE-NO-BASELINE above
+                calcPollingBaseline(lb, launcher, listener);
             PollingResult r = scm.poll(this, launcher, ws, listener, pollingBaseline);
             pollingBaseline = r.remote;
             return r;
@@ -1431,18 +1474,17 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      */
     private boolean isAllSuitableNodesOffline(R build) {
         Label label = getAssignedLabel();
-        List<Node> allNodes = Jenkins.getInstance().getNodes();
 
         if (label != null) {
             //Invalid label. Put in queue to make administrator fix
-            if(label.getNodes().isEmpty()) {
+            if (label.getNodes().isEmpty()) {
                 return false;
             }
             //Returns true, if all suitable nodes are offline
             return label.isOffline();
         } else {
-            if(canRoam) {
-                for (Node n : Jenkins.getInstance().getNodes()) {
+            if (canRoam) {
+                for (Node n : Jenkins.get().getNodes()) {
                     Computer c = n.toComputer();
                     if (c != null && c.isOnline() && c.isAcceptingTasks() && n.getMode() == Mode.NORMAL) {
                         // Some executor is online that  is ready and this job can run anywhere
@@ -1450,7 +1492,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
                     }
                 }
                 //We can roam, check that the master is set to be used as much as possible, and not tied jobs only.
-                return Jenkins.getInstance().getMode() == Mode.EXCLUSIVE;
+                return Jenkins.get().getMode() == Mode.EXCLUSIVE;
             }
         }
         return true;
@@ -1461,11 +1503,11 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
         Label label = getAssignedLabel();
 
         if (isAllSuitableNodesOffline(build)) {
-            Collection<Cloud> applicableClouds = label == null ? Jenkins.getInstance().clouds : label.getClouds();
+            Collection<Cloud> applicableClouds = label == null ? Jenkins.get().clouds : label.getClouds();
             return applicableClouds.isEmpty() ? WorkspaceOfflineReason.all_suitable_nodes_are_offline : WorkspaceOfflineReason.use_ondemand_slave;
         }
 
-        if (ws==null || !ws.exists()) {
+        if (ws == null || !ws.exists()) {
             return WorkspaceOfflineReason.nonexisting_workspace;
         }
 
@@ -1487,8 +1529,8 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      * @since 1.191
      */
     public boolean hasParticipant(User user) {
-        for( R build = getLastBuild(); build!=null; build=build.getPreviousBuild())
-            if(build.hasParticipant(user))
+        for (R build = getLastBuild(); build != null; build = build.getPreviousBuild())
+            if (build.hasParticipant(user))
                 return true;
         return false;
     }
@@ -1507,15 +1549,15 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      * Adds a new {@link Trigger} to this {@link Project} if not active yet.
      */
     public void addTrigger(Trigger<?> trigger) throws IOException {
-        addToList(trigger,triggers());
+        addToList(trigger, triggers());
     }
 
     public void removeTrigger(TriggerDescriptor trigger) throws IOException {
-        removeFromList(trigger,triggers());
+        removeFromList(trigger, triggers());
     }
 
     protected final synchronized <T extends Describable<T>>
-    void addToList( T item, List<T> collection ) throws IOException {
+    void addToList(T item, List<T> collection) throws IOException {
         //No support to replace item in position, remove then add
         removeFromList(item.getDescriptor(), collection);
         collection.add(item);
@@ -1526,9 +1568,9 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
     protected final synchronized <T extends Describable<T>>
     void removeFromList(Descriptor<T> item, List<T> collection) throws IOException {
         final Iterator<T> iCollection = collection.iterator();
-        while(iCollection.hasNext()) {
+        while (iCollection.hasNext()) {
             final T next = iCollection.next();
-            if(next.getDescriptor()==item) {
+            if (next.getDescriptor() == item) {
                 // found it
                 iCollection.remove();
                 save();
@@ -1538,8 +1580,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
         }
     }
 
-    @SuppressWarnings("unchecked")
-    @Override public Map<TriggerDescriptor,Trigger<?>> getTriggers() {
+    @Override public Map<TriggerDescriptor, Trigger<?>> getTriggers() {
         return triggers().toMap();
     }
 
@@ -1548,7 +1589,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      */
     public <T extends Trigger> T getTrigger(Class<T> clazz) {
         for (Trigger p : triggers()) {
-            if(clazz.isInstance(p))
+            if (clazz.isInstance(p))
                 return clazz.cast(p);
         }
         return null;
@@ -1569,10 +1610,10 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      * when a build of this project is completed.
      */
     public final List<AbstractProject> getDownstreamProjects() {
-        return Jenkins.getInstance().getDependencyGraph().getDownstream(this);
+        return Jenkins.get().getDependencyGraph().getDownstream(this);
     }
 
-    @Exported(name="downstreamProjects")
+    @Exported(name = "downstreamProjects")
     @Restricted(DoNotUse.class) // only for exporting
     public List<AbstractProject> getDownstreamProjectsForApi() {
         List<AbstractProject> r = new ArrayList<>();
@@ -1585,10 +1626,10 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
     }
 
     public final List<AbstractProject> getUpstreamProjects() {
-        return Jenkins.getInstance().getDependencyGraph().getUpstream(this);
+        return Jenkins.get().getDependencyGraph().getUpstream(this);
     }
 
-    @Exported(name="upstreamProjects")
+    @Exported(name = "upstreamProjects")
     @Restricted(DoNotUse.class) // only for exporting
     public List<AbstractProject> getUpstreamProjectsForApi() {
         List<AbstractProject> r = new ArrayList<>();
@@ -1607,8 +1648,8 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      * @return A List of upstream projects that has a {@link BuildTrigger} to this project.
      */
     public final List<AbstractProject> getBuildTriggerUpstreamProjects() {
-        ArrayList<AbstractProject> result = new ArrayList<AbstractProject>();
-        for (AbstractProject<?,?> ap : getUpstreamProjects()) {
+        ArrayList<AbstractProject> result = new ArrayList<>();
+        for (AbstractProject<?, ?> ap : getUpstreamProjects()) {
             BuildTrigger buildTrigger = ap.getPublishersList().get(BuildTrigger.class);
             if (buildTrigger != null)
                 if (buildTrigger.getChildJobs(ap).contains(this))
@@ -1623,7 +1664,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      * @since 1.138
      */
     public final Set<AbstractProject> getTransitiveUpstreamProjects() {
-        return Jenkins.getInstance().getDependencyGraph().getTransitiveUpstream(this);
+        return Jenkins.get().getDependencyGraph().getTransitiveUpstream(this);
     }
 
     /**
@@ -1632,7 +1673,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      * @since 1.138
      */
     public final Set<AbstractProject> getTransitiveDownstreamProjects() {
-        return Jenkins.getInstance().getDependencyGraph().getTransitiveDownstream(this);
+        return Jenkins.get().getDependencyGraph().getTransitiveDownstream(this);
     }
 
     /**
@@ -1644,7 +1685,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      *      numbers of that project.
      */
     public SortedMap<Integer, RangeSet> getRelationship(AbstractProject that) {
-        TreeMap<Integer,RangeSet> r = new TreeMap<Integer,RangeSet>(REVERSE_INTEGER_COMPARATOR);
+        TreeMap<Integer, RangeSet> r = new TreeMap<>(REVERSE_INTEGER_COMPARATOR);
 
         checkAndRecord(that, r, this.getBuilds());
         // checkAndRecord(that, r, that.getBuilds());
@@ -1657,17 +1698,17 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      *
      * For each given build, find the build number range of the given project and put that into the map.
      */
-    private void checkAndRecord(AbstractProject that, TreeMap<Integer, RangeSet> r, Collection<R> builds) {
+    private void checkAndRecord(AbstractProject that, TreeMap<Integer, RangeSet> r, Iterable<R> builds) {
         for (R build : builds) {
             RangeSet rs = build.getDownstreamRelationship(that);
-            if(rs==null || rs.isEmpty())
+            if (rs == null || rs.isEmpty())
                 continue;
 
             int n = build.getNumber();
 
             RangeSet value = r.get(n);
-            if(value==null)
-                r.put(n,rs);
+            if (value == null)
+                r.put(n, rs);
             else
                 value.add(rs);
         }
@@ -1686,21 +1727,20 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
         return getParameterizedJobMixIn().extendSearchIndex(super.makeSearchIndex());
     }
 
-    @Override
-    protected HistoryWidget createHistoryWidget() {
-        return buildMixIn.createHistoryWidget();
-    }
-
 //
 //
 // actions
 //
 //
 
-    /** @deprecated use {@link #doBuild(StaplerRequest, StaplerResponse, TimeDuration)} */
+    /** @deprecated use {@link #doBuild(StaplerRequest2, StaplerResponse2, TimeDuration)} */
     @Deprecated
-    public void doBuild(StaplerRequest req, StaplerResponse rsp) throws IOException, ServletException {
-        doBuild(req, rsp, TimeDuration.fromString(req.getParameter("delay")));
+    public void doBuild(StaplerRequest req, StaplerResponse rsp) throws IOException, javax.servlet.ServletException {
+        try {
+            doBuild(StaplerRequest.toStaplerRequest2(req), StaplerResponse.toStaplerResponse2(rsp), TimeDuration.fromString(req.getParameter("delay")));
+        } catch (ServletException e) {
+            throw ServletExceptionWrapper.fromJakartaServletException(e);
+        }
     }
 
     /**
@@ -1710,49 +1750,82 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      *      Inject {@link TimeDuration}.
      */
     @Deprecated
-    public int getDelay(StaplerRequest req) throws ServletException {
+    public int getDelay(StaplerRequest req) throws javax.servlet.ServletException {
         String delay = req.getParameter("delay");
-        if (delay==null)    return getQuietPeriod();
+        if (delay == null)    return getQuietPeriod();
 
         try {
             // TODO: more unit handling
-            if(delay.endsWith("sec"))   delay=delay.substring(0,delay.length()-3);
-            if(delay.endsWith("secs"))  delay=delay.substring(0,delay.length()-4);
+            if (delay.endsWith("sec"))   delay = delay.substring(0, delay.length() - 3);
+            if (delay.endsWith("secs"))  delay = delay.substring(0, delay.length() - 4);
             return Integer.parseInt(delay);
         } catch (NumberFormatException e) {
-            throw new ServletException("Invalid delay parameter value: "+delay);
+            throw new javax.servlet.ServletException("Invalid delay parameter value: " + delay, e);
         }
     }
 
-    /** @deprecated use {@link #doBuildWithParameters(StaplerRequest, StaplerResponse, TimeDuration)} */
+    /** @deprecated use {@link #doBuildWithParameters(StaplerRequest2, StaplerResponse2, TimeDuration)} */
     @Deprecated
-    public void doBuildWithParameters(StaplerRequest req, StaplerResponse rsp) throws IOException, ServletException {
-        doBuildWithParameters(req, rsp, TimeDuration.fromString(req.getParameter("delay")));
+    public void doBuildWithParameters(StaplerRequest req, StaplerResponse rsp) throws IOException, javax.servlet.ServletException {
+        try {
+            doBuildWithParameters(StaplerRequest.toStaplerRequest2(req), StaplerResponse.toStaplerResponse2(rsp), TimeDuration.fromString(req.getParameter("delay")));
+        } catch (ServletException e) {
+            throw ServletExceptionWrapper.fromJakartaServletException(e);
+        }
     }
 
     @Override // in case schedulePolling was overridden
-    public void doPolling( StaplerRequest req, StaplerResponse rsp ) throws IOException, ServletException {
+    public void doPolling(StaplerRequest2 req, StaplerResponse2 rsp) throws IOException, ServletException {
         BuildAuthorizationToken.checkPermission((Job) this, authToken, req, rsp);
         schedulePolling();
         rsp.sendRedirect(".");
     }
 
+    /**
+     * @since 2.475
+     */
     @Override
-    protected void submit(StaplerRequest req, StaplerResponse rsp) throws IOException, ServletException, FormException {
-        super.submit(req,rsp);
+    protected void submit(StaplerRequest2 req, StaplerResponse2 rsp) throws IOException, ServletException, FormException {
+        if (Util.isOverridden(AbstractProject.class, getClass(), "submit", StaplerRequest.class, StaplerResponse.class)) {
+            try {
+                submit(StaplerRequest.fromStaplerRequest2(req), StaplerResponse.fromStaplerResponse2(rsp));
+            } catch (javax.servlet.ServletException e) {
+                throw ServletExceptionWrapper.toJakartaServletException(e);
+            }
+        } else {
+            super.submit(req, rsp);
+            submitImpl(req, rsp);
+        }
+    }
+
+    /**
+     * @deprecated use {@link #submit(StaplerRequest2, StaplerResponse2)}
+     */
+    @Deprecated
+    @Override
+    protected void submit(StaplerRequest req, StaplerResponse rsp) throws IOException, javax.servlet.ServletException, FormException {
+        super.submit(req, rsp);
+        try {
+            submitImpl(StaplerRequest.toStaplerRequest2(req), StaplerResponse.toStaplerResponse2(rsp));
+        } catch (ServletException e) {
+            throw ServletExceptionWrapper.fromJakartaServletException(e);
+        }
+    }
+
+    private void submitImpl(StaplerRequest2 req, StaplerResponse2 rsp) throws IOException, ServletException, FormException {
         JSONObject json = req.getSubmittedForm();
 
-        makeDisabled(json.optBoolean("disable"));
+        makeDisabled(!json.optBoolean("enable"));
 
         jdk = json.optString("jdk", null);
 
-        if(json.optBoolean("hasCustomQuietPeriod", json.has("quiet_period"))) {
+        if (json.optBoolean("hasCustomQuietPeriod", json.has("quiet_period"))) {
             quietPeriod = json.optInt("quiet_period");
         } else {
             quietPeriod = null;
         }
 
-        if(json.optBoolean("hasCustomScmCheckoutRetryCount", json.has("scmCheckoutRetryCount"))) {
+        if (json.optBoolean("hasCustomScmCheckoutRetryCount", json.has("scmCheckoutRetryCount"))) {
             scmCheckoutRetryCount = json.optInt("scmCheckoutRetryCount");
         } else {
             scmCheckoutRetryCount = null;
@@ -1761,11 +1834,11 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
         blockBuildWhenDownstreamBuilding = json.optBoolean("blockBuildWhenDownstreamBuilding");
         blockBuildWhenUpstreamBuilding = json.optBoolean("blockBuildWhenUpstreamBuilding");
 
-        if(req.hasParameter("customWorkspace.directory")) {
+        if (req.hasParameter("customWorkspace.directory")) {
             // Workaround for JENKINS-25221 while plugins are being updated.
             LOGGER.log(Level.WARNING, "label assignment is using legacy 'customWorkspace.directory'");
             customWorkspace = Util.fixEmptyAndTrim(req.getParameter("customWorkspace.directory"));
-        } else if(json.optBoolean("hasCustomWorkspace", json.has("customWorkspace"))) {
+        } else if (json.optBoolean("hasCustomWorkspace", json.has("customWorkspace"))) {
             customWorkspace = Util.fixEmptyAndTrim(json.optString("customWorkspace"));
         } else {
             customWorkspace = null;
@@ -1777,9 +1850,9 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
         else
             scmCheckoutStrategy = null;
 
-        if(json.optBoolean("hasSlaveAffinity", json.has("label"))) {
+        if (json.optBoolean("hasSlaveAffinity", json.has("label"))) {
             assignedNode = Util.fixEmptyAndTrim(json.optString("label"));
-        } else if(req.hasParameter("_.assignedLabelString")) {
+        } else if (req.hasParameter("_.assignedLabelString")) {
             // Workaround for JENKINS-25372 while plugin is being updated.
             // Keep this condition second for JENKINS-25533
             LOGGER.log(Level.WARNING, "label assignment is using legacy '_.assignedLabelString'");
@@ -1787,7 +1860,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
         } else  {
             assignedNode = null;
         }
-        canRoam = assignedNode==null;
+        canRoam = assignedNode == null;
 
         keepDependencies = json.has("keepDependencies");
 
@@ -1795,29 +1868,33 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
 
         authToken = BuildAuthorizationToken.create(req);
 
-        setScm(SCMS.parseSCM(req,this));
+        setScm(SCMS.parseSCM(req, this));
 
         for (Trigger t : triggers())
             t.stop();
         triggers.replaceBy(buildDescribable(req, Trigger.for_(this)));
         for (Trigger t : triggers())
-            t.start(this,true);
+            t.start(this, true);
     }
 
     /**
      * @deprecated
-     *      As of 1.261. Use {@link #buildDescribable(StaplerRequest, List)} instead.
+     *      As of 1.261. Use {@link #buildDescribable(StaplerRequest2, List)} instead.
      */
     @Deprecated
-    protected final <T extends Describable<T>> List<T> buildDescribable(StaplerRequest req, List<? extends Descriptor<T>> descriptors, String prefix) throws FormException, ServletException {
-        return buildDescribable(req,descriptors);
+    protected final <T extends Describable<T>> List<T> buildDescribable(StaplerRequest req, List<? extends Descriptor<T>> descriptors, String prefix) throws FormException, javax.servlet.ServletException {
+        try {
+            return buildDescribable(StaplerRequest.toStaplerRequest2(req), descriptors);
+        } catch (ServletException e) {
+            throw ServletExceptionWrapper.fromJakartaServletException(e);
+        }
     }
 
-    protected final <T extends Describable<T>> List<T> buildDescribable(StaplerRequest req, List<? extends Descriptor<T>> descriptors)
+    protected final <T extends Describable<T>> List<T> buildDescribable(StaplerRequest2 req, List<? extends Descriptor<T>> descriptors)
         throws FormException, ServletException {
 
         JSONObject data = req.getSubmittedForm();
-        List<T> r = new Vector<T>();
+        List<T> r = new Vector<>();
         for (Descriptor<T> d : descriptors) {
             String safeName = d.getJsonSafeClassName();
             if (req.getParameter(safeName) != null) {
@@ -1831,16 +1908,16 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
     /**
      * Serves the workspace files.
      */
-    public DirectoryBrowserSupport doWs( StaplerRequest req, StaplerResponse rsp ) throws IOException, ServletException, InterruptedException {
+    public DirectoryBrowserSupport doWs(StaplerRequest2 req, StaplerResponse2 rsp) throws IOException, ServletException, InterruptedException {
         checkPermission(Item.WORKSPACE);
         FilePath ws = getSomeWorkspace();
-        if ((ws == null) || (!ws.exists())) {
+        if (ws == null || !ws.exists()) {
             // if there's no workspace, report a nice error message
             // Would be good if when asked for *plain*, do something else!
             // (E.g. return 404, or send empty doc.)
             // Not critical; client can just check if content type is not text/plain,
             // which also serves to detect old versions of Hudson.
-            req.getView(this,"noWorkspace.jelly").forward(req,rsp);
+            req.getView(this, "noWorkspace.jelly").forward(req, rsp);
             return null;
         } else {
             Computer c = ws.toComputer();
@@ -1858,11 +1935,11 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      * Wipes out the workspace.
      */
     @RequirePOST
-    public HttpResponse doDoWipeOutWorkspace() throws IOException, ServletException, InterruptedException {
+    public HttpResponse doDoWipeOutWorkspace() throws IOException, InterruptedException {
         checkPermission(Functions.isWipeOutPermissionEnabled() ? WIPEOUT : BUILD);
         R b = getSomeBuildWithWorkspace();
-        FilePath ws = b!=null ? b.getWorkspace() : null;
-        if (ws!=null && getScm().processWorkspaceBeforeDeletion(this, ws, b.getBuiltOn())) {
+        FilePath ws = b != null ? b.getWorkspace() : null;
+        if (ws != null && getScm().processWorkspaceBeforeDeletion(this, ws, b.getBuiltOn())) {
             ws.deleteRecursive();
             for (WorkspaceListener wl : WorkspaceListener.all()) {
                 wl.afterDelete(this);
@@ -1870,7 +1947,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
             return new HttpRedirect(".");
         } else {
             // If we get here, that means the SCM blocked the workspace deletion.
-            return new ForwardToView(this,"wipeOutWorkspaceBlocked.jelly");
+            return new ForwardToView(this, "wipeOutWorkspaceBlocked.jelly");
         }
     }
 
@@ -1879,7 +1956,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      *
      * @since 1.294
      */
-    public static abstract class AbstractProjectDescriptor extends TopLevelItemDescriptor {
+    public abstract static class AbstractProjectDescriptor extends TopLevelItemDescriptor {
         /**
          * {@link AbstractProject} subtypes can override this method to veto some {@link Descriptor}s
          * from showing up on their configuration screen. This is often useful when you are building
@@ -1906,7 +1983,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
         }
 
         @Restricted(DoNotUse.class)
-        public FormValidation doCheckAssignedLabelString(@AncestorInPath AbstractProject<?,?> project,
+        public FormValidation doCheckAssignedLabelString(@AncestorInPath AbstractProject<?, ?> project,
                                                          @QueryParameter String value) {
           // Provide a legacy interface in case plugins are not going through p:config-assignedLabel
           // see: JENKINS-25372
@@ -1914,9 +1991,9 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
           return doCheckLabel(project, value);
         }
 
-        public FormValidation doCheckLabel(@AncestorInPath AbstractProject<?,?> project,
+        public FormValidation doCheckLabel(@AncestorInPath AbstractProject<?, ?> project,
                                            @QueryParameter String value) {
-            return validateLabelExpression(value, project);
+            return LabelExpression.validate(value, project);
         }
 
         /**
@@ -1924,57 +2001,25 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
          *
          * @param project May be specified to perform project specific validation.
          * @since 1.590
+         * @deprecated Use {@link LabelExpression#validate(String, Item)} instead.
          */
-        public static @Nonnull FormValidation validateLabelExpression(String value, @CheckForNull AbstractProject<?, ?> project) {
-            if (Util.fixEmpty(value)==null)
-                return FormValidation.ok(); // nothing typed yet
-            try {
-                Label.parseExpression(value);
-            } catch (ANTLRException e) {
-                return FormValidation.error(e,
-                        Messages.AbstractProject_AssignedLabelString_InvalidBooleanExpression(e.getMessage()));
-            }
-            Jenkins j = Jenkins.getInstance();
-            Label l = j.getLabel(value);
-            if (l.isEmpty()) {
-                for (LabelAtom a : l.listAtoms()) {
-                    if (a.isEmpty()) {
-                        LabelAtom nearest = LabelAtom.findNearest(a.getName());
-                        return FormValidation.warning(Messages.AbstractProject_AssignedLabelString_NoMatch_DidYouMean(a.getName(),nearest.getDisplayName()));
-                    }
-                }
-                return FormValidation.warning(Messages.AbstractProject_AssignedLabelString_NoMatch());
-            }
-            if (project != null) {
-                for (AbstractProject.LabelValidator v : j
-                        .getExtensionList(AbstractProject.LabelValidator.class)) {
-                    FormValidation result = v.check(project, l);
-                    if (!FormValidation.Kind.OK.equals(result.kind)) {
-                        return result;
-                    }
-                }
-            }
-            return FormValidation.okWithMarkup(Messages.AbstractProject_LabelLink(
-                    j.getRootUrl(), Util.escape(l.getName()), l.getUrl(), l.getNodes().size(), l.getClouds().size())
-            );
+        @Deprecated
+        public static @NonNull FormValidation validateLabelExpression(String value, @CheckForNull AbstractProject<?, ?> project) {
+            return LabelExpression.validate(value, project);
         }
 
-        public FormValidation doCheckCustomWorkspace(@QueryParameter String customWorkspace){
-        	if(Util.fixEmptyAndTrim(customWorkspace)==null)
-        		return FormValidation.error(Messages.AbstractProject_CustomWorkspaceEmpty());
-        	else
-        		return FormValidation.ok();
+        public FormValidation doCheckCustomWorkspace(@QueryParameter String customWorkspace) {
+            if (Util.fixEmptyAndTrim(customWorkspace) == null)
+                return FormValidation.error(Messages.AbstractProject_CustomWorkspaceEmpty());
+            else
+                return FormValidation.ok();
         }
 
         public AutoCompletionCandidates doAutoCompleteUpstreamProjects(@QueryParameter String value) {
             AutoCompletionCandidates candidates = new AutoCompletionCandidates();
-            List<Job> jobs = Jenkins.getInstance().getItems(Job.class);
-            for (Job job: jobs) {
-                if (job.getFullName().startsWith(value)) {
-                    if (job.hasPermission(Item.READ)) {
-                        candidates.add(job.getFullName());
-                    }
-                }
+            List<TopLevelItem> jobs = Jenkins.get().getItems(j -> j instanceof Job && j.getFullName().startsWith(value));
+            for (TopLevelItem job : jobs) {
+                candidates.add(job.getFullName());
             }
             return candidates;
         }
@@ -1988,63 +2033,11 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
         }
 
         public AutoCompletionCandidates doAutoCompleteLabel(@QueryParameter String value) {
-            AutoCompletionCandidates c = new AutoCompletionCandidates();
-            Set<Label> labels = Jenkins.getInstance().getLabels();
-            List<String> queries = new AutoCompleteSeeder(value).getSeeds();
-
-            for (String term : queries) {
-                for (Label l : labels) {
-                    if (l.getName().startsWith(term)) {
-                        c.add(l.getName());
-                    }
-                }
-            }
-            return c;
+            return LabelExpression.autoComplete(value);
         }
 
         public List<SCMCheckoutStrategyDescriptor> getApplicableSCMCheckoutStrategyDescriptors(AbstractProject p) {
             return SCMCheckoutStrategyDescriptor._for(p);
-        }
-
-        /**
-        * Utility class for taking the current input value and computing a list
-        * of potential terms to match against the list of defined labels.
-         */
-        static class AutoCompleteSeeder {
-            private String source;
-
-            AutoCompleteSeeder(String source) {
-                this.source = source;
-            }
-
-            List<String> getSeeds() {
-                ArrayList<String> terms = new ArrayList<String>();
-                boolean trailingQuote = source.endsWith("\"");
-                boolean leadingQuote = source.startsWith("\"");
-                boolean trailingSpace = source.endsWith(" ");
-
-                if (trailingQuote || (trailingSpace && !leadingQuote)) {
-                    terms.add("");
-                } else {
-                    if (leadingQuote) {
-                        int quote = source.lastIndexOf('"');
-                        if (quote == 0) {
-                            terms.add(source.substring(1));
-                        } else {
-                            terms.add("");
-                        }
-                    } else {
-                        int space = source.lastIndexOf(' ');
-                        if (space > -1) {
-                            terms.add(source.substring(space+1));
-                        } else {
-                            terms.add(source);
-                        }
-                    }
-                }
-
-                return terms;
-            }
         }
     }
 
@@ -2053,7 +2046,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      * @see Items#findNearest
      */
     public static @CheckForNull AbstractProject findNearest(String name) {
-        return findNearest(name,Jenkins.getInstance());
+        return findNearest(name, Jenkins.get());
     }
 
     /**
@@ -2066,11 +2059,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
         return Items.findNearest(AbstractProject.class, name, context);
     }
 
-    private static final Comparator<Integer> REVERSE_INTEGER_COMPARATOR = new Comparator<Integer>() {
-        public int compare(Integer o1, Integer o2) {
-            return o2-o1;
-        }
-    };
+    private static final Comparator<Integer> REVERSE_INTEGER_COMPARATOR = Comparator.reverseOrder();
 
     private static final Logger LOGGER = Logger.getLogger(AbstractProject.class.getName());
 
@@ -2084,16 +2073,16 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      * @deprecated Use {@link ParameterizedJobMixIn#BUILD_NOW_TEXT}.
      */
     @Deprecated
-    public static final Message<AbstractProject> BUILD_NOW_TEXT = new Message<AbstractProject>();
+    public static final Message<AbstractProject> BUILD_NOW_TEXT = new Message<>();
 
     /**
      * Used for CLI binding.
      */
     @CLIResolver
     public static AbstractProject resolveForCLI(
-            @Argument(required=true,metaVar="NAME",usage="Job name") String name) throws CmdLineException {
-        AbstractProject item = Jenkins.getInstance().getItemByFullName(name, AbstractProject.class);
-        if (item==null) {
+            @Argument(required = true, metaVar = "NAME", usage = "Job name") String name) throws CmdLineException {
+        AbstractProject item = Jenkins.get().getItemByFullName(name, AbstractProject.class);
+        if (item == null) {
             AbstractProject project = AbstractProject.findNearest(name);
             throw new CmdLineException(null, project == null ? Messages.AbstractItem_NoSuchJobExistsWithoutSuggestion(name)
                     : Messages.AbstractItem_NoSuchJobExists(name, project.getFullName()));
@@ -2122,7 +2111,7 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      * @since 1.410
      */
     public void setCustomWorkspace(String customWorkspace) throws IOException {
-        this.customWorkspace= Util.fixEmptyAndTrim(customWorkspace);
+        this.customWorkspace = Util.fixEmptyAndTrim(customWorkspace);
         save();
     }
 
@@ -2131,17 +2120,48 @@ public abstract class AbstractProject<P extends AbstractProject<P,R>,R extends A
      * This extension point allows such restrictions.
      *
      * @since 1.540
+     * @deprecated Use {@link jenkins.model.labels.LabelValidator} instead.
      */
-    public static abstract class LabelValidator implements ExtensionPoint {
+    @Deprecated
+    public abstract static class LabelValidator implements ExtensionPoint {
+
         /**
          * Check the use of the label within the specified context.
+         * <p>
+         * Note that "OK" responses (and any text/markup that may be set on them) will be ignored. Only warnings and
+         * errors are taken into account, and aggregated across all validators.
          *
          * @param project the project that wants to restrict itself to the specified label.
          * @param label   the label that the project wants to restrict itself to.
          * @return the {@link FormValidation} result.
          */
-        @Nonnull
-        public abstract FormValidation check(@Nonnull AbstractProject<?, ?> project, @Nonnull Label label);
+        @NonNull
+        public abstract FormValidation check(@NonNull AbstractProject<?, ?> project, @NonNull Label label);
+
+        /**
+         * Validates the use of a label within a particular context.
+         * <p>
+         * Note that "OK" responses (and any text/markup that may be set on them) will be ignored. Only warnings and
+         * errors are taken into account, and aggregated across all validators.
+         * <p>
+         * This method exists to allow plugins to implement an override for it, enabling checking in non-AbstractProject
+         * contexts without needing to update their Jenkins dependency (and using the new
+         * {@link jenkins.model.labels.LabelValidator} instead).
+         *
+         * @param item  The context item to be restricted by the label.
+         * @param label The label that the job wants to restrict itself to.
+         * @return The validation result.
+         *
+         * @since 2.243
+         */
+        @NonNull
+        public FormValidation checkItem(@NonNull Item item, @NonNull Label label) {
+            if (item instanceof AbstractProject<?, ?>) {
+                return this.check((AbstractProject<?, ?>) item, label);
+            }
+            return FormValidation.ok();
+        }
+
     }
 
 }

@@ -21,19 +21,20 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package jenkins.model;
 
+import edu.umd.cs.findbugs.annotations.CheckForNull;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.console.ModelHyperlinkNote;
 import hudson.model.Executor;
+import hudson.model.Result;
 import hudson.model.TaskListener;
 import hudson.model.User;
-import org.kohsuke.stapler.export.Exported;
-import org.kohsuke.stapler.export.ExportedBean;
-
 import java.io.Serializable;
 import java.util.Collections;
-import javax.annotation.CheckForNull;
-import javax.annotation.Nonnull;
+import org.kohsuke.stapler.export.Exported;
+import org.kohsuke.stapler.export.ExportedBean;
 
 /**
  * Records why an {@linkplain Executor#interrupt() executor is interrupted}.
@@ -75,15 +76,15 @@ public abstract class CauseOfInterruption implements Serializable {
      * Indicates that the build was interrupted from UI.
      */
     public static final class UserInterruption extends CauseOfInterruption {
-        
-        @Nonnull
+
+        @NonNull
         private final String user;
 
-        public UserInterruption(@Nonnull User user) {
+        public UserInterruption(@NonNull User user) {
             this.user = user.getId();
         }
 
-        public UserInterruption(@Nonnull String userId) {
+        public UserInterruption(@NonNull String userId) {
             this.user = userId;
         }
 
@@ -92,22 +93,22 @@ public abstract class CauseOfInterruption implements Serializable {
          * @return User ID
          * @since 2.31
          */
-        @Nonnull
+        @NonNull
         public String getUserId() {
             return user;
         }
-        
+
         /**
          * Gets user, who caused the interruption.
          * @return User instance if it can be located.
          *         Result of {@link User#getUnknown()} otherwise
          */
-        @Nonnull
+        @NonNull
         public User getUser() {
             final User userInstance = getUserOrNull();
             return userInstance != null ? userInstance : User.getUnknown();
         }
-        
+
         /**
          * Gets user, who caused the interruption.
          * @return User or {@code null} if it has not been found
@@ -118,6 +119,7 @@ public abstract class CauseOfInterruption implements Serializable {
             return User.get(user, false, Collections.emptyMap());
         }
 
+        @Override
         public String getShortDescription() {
             return Messages.CauseOfInterruption_ShortDescription(user);
         }
@@ -127,7 +129,7 @@ public abstract class CauseOfInterruption implements Serializable {
             final User userInstance = getUser();
             listener.getLogger().println(
                 Messages.CauseOfInterruption_ShortDescription(
-                        userInstance != null ? ModelHyperlinkNote.encodeTo(userInstance) : user));
+                        ModelHyperlinkNote.encodeTo(userInstance)));
         }
 
         @Override

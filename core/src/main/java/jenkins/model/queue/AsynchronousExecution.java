@@ -24,6 +24,8 @@
 
 package jenkins.model.queue;
 
+import edu.umd.cs.findbugs.annotations.CheckForNull;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.model.Computer;
 import hudson.model.Executor;
 import hudson.model.ExecutorListener;
@@ -34,10 +36,8 @@ import hudson.model.Resource;
 import hudson.model.ResourceActivity;
 import hudson.model.ResourceController;
 import hudson.model.ResourceList;
-import javax.annotation.CheckForNull;
-import javax.annotation.Nonnull;
-import javax.annotation.concurrent.GuardedBy;
 import jenkins.model.Jenkins;
+import net.jcip.annotations.GuardedBy;
 import org.kohsuke.accmod.Restricted;
 import org.kohsuke.accmod.restrictions.NoExternalUse;
 
@@ -45,7 +45,8 @@ import org.kohsuke.accmod.restrictions.NoExternalUse;
  * Special means of indicating that an executable will proceed in the background without consuming a native thread ({@link Executor}).
  * May be thrown from {@link Executable#run} after doing any preparatory work synchronously.
  * <p>{@link Executor#isActive} will remain true (even though {@link Executor#isAlive} is not) until {@link #completed} is called.
- * The thrower will need to hold on to a reference to this instance as a handle to call {@link #completed}.
+ * The thrower could hold on to a reference to this instance as a handle to call {@link #completed},
+ * or look it up later via {@link Executor#getAsynchronousExecution}.
  * <p>The execution may not extend into another Jenkins session; if you wish to model a long-running execution, you must schedule a new task after restart.
  * This class is not serializable anyway.
  * <p>Mainly intended for use with {@link OneOffExecutor} (from a {@link FlyweightTask}), of which there could be many,
@@ -98,11 +99,11 @@ public abstract class AsynchronousExecution extends RuntimeException {
 
     /**
      * Obtains the associated executor.
-     * @return Associated Executor. May be {@code null} if {@link #setExecutorWithoutCompleting(hudson.model.Executor)} 
+     * @return Associated Executor. May be {@code null} if {@link #setExecutorWithoutCompleting(hudson.model.Executor)}
      * has not been called yet.
      */
     @CheckForNull
-    public synchronized final Executor getExecutor() {
+    public final synchronized Executor getExecutor() {
         return executor;
     }
 
@@ -112,7 +113,7 @@ public abstract class AsynchronousExecution extends RuntimeException {
      * after releasing any problematic locks.
      */
     @Restricted(NoExternalUse.class)
-    public synchronized final void setExecutorWithoutCompleting(@Nonnull Executor executor) {
+    public final synchronized void setExecutorWithoutCompleting(@NonNull Executor executor) {
         assert this.executor == null;
         this.executor = executor;
     }
@@ -122,7 +123,7 @@ public abstract class AsynchronousExecution extends RuntimeException {
      * Must be called after {@link #setExecutorWithoutCompleting(Executor)}.
      */
     @Restricted(NoExternalUse.class)
-    public synchronized final void maybeComplete() {
+    public final synchronized void maybeComplete() {
         assert this.executor != null;
         if (result != null) {
             executor.completedAsynchronous(result != NULL ? result : null);
@@ -134,8 +135,8 @@ public abstract class AsynchronousExecution extends RuntimeException {
      * To be called when the task is actually complete.
      * @param error normally null (preferable to handle errors yourself), but may be specified to simulate an exception from {@link Executable#run}, as per {@link ExecutorListener#taskCompletedWithProblems}
      */
-    public synchronized final void completed(@CheckForNull Throwable error) {
-        if (executor!=null) {
+    public final synchronized void completed(@CheckForNull Throwable error) {
+        if (executor != null) {
             executor.completedAsynchronous(error);
         } else {
             result = error == null ? NULL : error;

@@ -21,24 +21,24 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package hudson.diagnosis;
+
+import static hudson.init.InitMilestone.EXTENSIONS_AUGMENTED;
 
 import hudson.Extension;
 import hudson.PluginWrapper;
 import hudson.init.Initializer;
 import hudson.model.AdministrativeMonitor;
 import hudson.model.Descriptor;
-import jenkins.model.Jenkins;
-import org.jenkinsci.Symbol;
-
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-
-import static hudson.init.InitMilestone.EXTENSIONS_AUGMENTED;
+import jenkins.model.Jenkins;
+import org.jenkinsci.Symbol;
 
 /**
  * Some old descriptors apparently has the getId() method that's used in different ways
@@ -55,7 +55,7 @@ public class NullIdDescriptorMonitor extends AdministrativeMonitor {
         return Messages.NullIdDescriptorMonitor_DisplayName();
     }
 
-    private final List<Descriptor> problems = new ArrayList<Descriptor>();
+    private final List<Descriptor> problems = new ArrayList<>();
 
     @Override
     public boolean isActivated() {
@@ -66,23 +66,23 @@ public class NullIdDescriptorMonitor extends AdministrativeMonitor {
         return Collections.unmodifiableList(problems);
     }
 
-    @Initializer(after=EXTENSIONS_AUGMENTED)
+    @Initializer(after = EXTENSIONS_AUGMENTED)
     public void verify() {
-        Jenkins h = Jenkins.getInstance();
+        Jenkins h = Jenkins.get();
         for (Descriptor d : h.getExtensionList(Descriptor.class)) {
             PluginWrapper p = h.getPluginManager().whichPlugin(d.getClass());
             String id;
             try {
                 id = d.getId();
             } catch (Throwable t) {
-                LOGGER.log(Level.SEVERE,MessageFormat.format("Descriptor {0} from plugin {1} with display name {2} reported an exception for ID",
-                        d, p == null ? "???" : p.getLongName(), d.getDisplayName()),t);
+                LOGGER.log(Level.SEVERE, MessageFormat.format("Descriptor {0} from plugin {1} with display name {2} reported an exception for ID",
+                        d, p == null ? "???" : p.getLongName(), d.getDisplayName()), t);
                 problems.add(d);
                 continue;
             }
-            if (id==null) {
+            if (id == null) {
                 LOGGER.severe(MessageFormat.format("Descriptor {0} from plugin {1} with display name {2} has null ID",
-                        d, p==null?"???":p.getLongName(), d.getDisplayName()));
+                        d, p == null ? "???" : p.getLongName(), d.getDisplayName()));
                 problems.add(d);
             }
         }

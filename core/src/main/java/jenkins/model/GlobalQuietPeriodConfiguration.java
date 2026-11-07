@@ -21,29 +21,31 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package jenkins.model;
 
+import edu.umd.cs.findbugs.annotations.NonNull;
 import hudson.Extension;
+import hudson.security.Permission;
+import java.io.IOException;
 import net.sf.json.JSONObject;
 import org.jenkinsci.Symbol;
-import org.kohsuke.stapler.StaplerRequest;
-
-import java.io.IOException;
+import org.kohsuke.stapler.StaplerRequest2;
 
 /**
  * Configures the system-default quiet period.
  *
  * @author Kohsuke Kawaguchi
  */
-@Extension(ordinal=400) @Symbol("quietPeriod")
+@Extension(ordinal = 400) @Symbol("quietPeriod")
 public class GlobalQuietPeriodConfiguration extends GlobalConfiguration {
     public int getQuietPeriod() {
         return Jenkins.get().getQuietPeriod();
     }
 
     @Override
-    public boolean configure(StaplerRequest req, JSONObject json) throws FormException {
-        int i=0;
+    public boolean configure(StaplerRequest2 req, JSONObject json) throws FormException {
+        int i = 0;
         try {
             i = Integer.parseInt(json.getString("quietPeriod"));
         } catch (NumberFormatException e) {
@@ -54,7 +56,13 @@ public class GlobalQuietPeriodConfiguration extends GlobalConfiguration {
             Jenkins.get().setQuietPeriod(i);
             return true;
         } catch (IOException e) {
-            throw new FormException(e,"quietPeriod");
+            throw new FormException(e, "quietPeriod");
         }
+    }
+
+    @NonNull
+    @Override
+    public Permission getRequiredGlobalConfigPagePermission() {
+        return Jenkins.MANAGE;
     }
 }

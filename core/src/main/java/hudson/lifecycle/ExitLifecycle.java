@@ -21,18 +21,17 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package hudson.lifecycle;
 
-import hudson.Extension;
-
-import org.kohsuke.accmod.Restricted;
-import org.kohsuke.accmod.restrictions.NoExternalUse;
-
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import hudson.util.BootFailure;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-
-import jenkins.model.Configuration;
 import jenkins.model.Jenkins;
+import jenkins.util.SystemProperties;
+import org.kohsuke.accmod.Restricted;
+import org.kohsuke.accmod.restrictions.NoExternalUse;
 
 /**
  * {@link Lifecycle} that delegates the responsibility to restart Jenkins to an external
@@ -44,7 +43,6 @@ import jenkins.model.Jenkins;
  * @author Alon Bar-Lev
  */
 @Restricted(NoExternalUse.class)
-@Extension
 public class ExitLifecycle extends Lifecycle {
 
     private static final Logger LOGGER = Logger.getLogger(ExitLifecycle.class.getName());
@@ -55,10 +53,11 @@ public class ExitLifecycle extends Lifecycle {
     private Integer exitOnRestart;
 
     public ExitLifecycle() {
-        exitOnRestart = Integer.parseInt(Configuration.getStringConfigParameter(EXIT_CODE_ON_RESTART, DEFAULT_EXIT_CODE));
+        exitOnRestart = Integer.parseInt(SystemProperties.getString(Jenkins.class.getName() + "." + EXIT_CODE_ON_RESTART, DEFAULT_EXIT_CODE));
     }
 
     @Override
+    @SuppressFBWarnings(value = "DM_EXIT", justification = "Exit is really intended.")
     public void restart() {
         Jenkins jenkins = Jenkins.getInstanceOrNull(); // guard against repeated concurrent calls to restart
 
@@ -66,10 +65,15 @@ public class ExitLifecycle extends Lifecycle {
             if (jenkins != null) {
                 jenkins.cleanUp();
             }
-        } catch (Exception e) {
+        } catch (Throwable e) {
             LOGGER.log(Level.SEVERE, "Failed to clean up. Restart will continue.", e);
         }
 
         System.exit(exitOnRestart);
+    }
+
+    @Override
+    public void onBootFailure(BootFailure problem) {
+        restart();
     }
 }

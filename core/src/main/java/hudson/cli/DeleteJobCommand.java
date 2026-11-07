@@ -21,16 +21,17 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package hudson.cli;
 
 import hudson.AbortException;
 import hudson.Extension;
 import hudson.model.AbstractItem;
+import hudson.model.Item;
+import java.util.HashSet;
+import java.util.List;
 import jenkins.model.Jenkins;
 import org.kohsuke.args4j.Argument;
-
-import java.util.List;
-import java.util.HashSet;
 
 /**
  * CLI command, which deletes a job or multiple jobs.
@@ -40,7 +41,8 @@ import java.util.HashSet;
 @Extension
 public class DeleteJobCommand extends CLICommand {
 
-    @Argument(usage="Name of the job(s) to delete", required=true, multiValued=true)
+    @SuppressWarnings("MismatchedQueryAndUpdateOfCollection")
+    @Argument(usage = "Name of the job(s) to delete", required = true, multiValued = true)
     private List<String> jobs;
 
     @Override
@@ -53,29 +55,28 @@ public class DeleteJobCommand extends CLICommand {
     protected int run() throws Exception {
 
         boolean errorOccurred = false;
-        final Jenkins jenkins = Jenkins.getActiveInstance();
+        final Jenkins jenkins = Jenkins.get();
 
-        final HashSet<String> hs = new HashSet<>();
-        hs.addAll(jobs);
+        final HashSet<String> hs = new HashSet<>(jobs);
 
-        for (String job_s: hs) {
-            AbstractItem job = null;
+        for (String job_s : hs) {
+            AbstractItem job;
 
             try {
                 job = (AbstractItem) jenkins.getItemByFullName(job_s);
 
-                if(job == null) {
+                if (job == null) {
                     throw new IllegalArgumentException("No such job '" + job_s + "'");
                 }
 
-                job.checkPermission(AbstractItem.DELETE);
+                job.checkPermission(Item.DELETE);
                 job.delete();
             } catch (Exception e) {
-                if(hs.size() == 1) {
+                if (hs.size() == 1) {
                     throw e;
                 }
 
-                final String errorMsg = String.format(job_s + ": " + e.getMessage());
+                final String errorMsg = job_s + ": " + e.getMessage();
                 stderr.println(errorMsg);
                 errorOccurred = true;
                 continue;

@@ -13,11 +13,10 @@ but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 Lesser General Public License for more details.
  */
+
 package hudson.util.jna;
 
 import com.sun.jna.ptr.IntByReference;
-
-import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
 import java.util.Collection;
 import java.util.TreeMap;
@@ -28,7 +27,7 @@ import java.util.TreeSet;
  *
  * @author Kohsuke Kawaguchi
  */
-public class RegistryKey {
+public class RegistryKey implements AutoCloseable {
     /**
      * 32bit Windows key value.
      */
@@ -46,26 +45,26 @@ public class RegistryKey {
         path = "";
     }
 
-    private RegistryKey(RegistryKey ancestor, String path,int handle) {
+    private RegistryKey(RegistryKey ancestor, String path, int handle) {
         this.handle = handle;
         this.root = ancestor.root;
-        this.path = combine(ancestor.path,path);
+        this.path = combine(ancestor.path, path);
     }
 
     private static String combine(String a, String b) {
-        if(a.length()==0)   return b;
-        if(b.length()==0)   return a;
-        return a+'\\'+b;
+        if (a.isEmpty())   return b;
+        if (b.isEmpty())   return a;
+        return a + '\\' + b;
     }
 
     /**
      * Converts a Windows buffer to a Java String.
      *
      * @param buf buffer
-     * @throws java.io.UnsupportedEncodingException on error
      * @return String
+     * @throws java.io.UnsupportedEncodingException on error
      */
-    private static String convertBufferToString(byte[] buf) {
+    static String convertBufferToString(byte[] buf) {
         return new String(buf, 0, buf.length - 2, StandardCharsets.UTF_16LE);
     }
 
@@ -75,8 +74,8 @@ public class RegistryKey {
      * @param buf buffer
      * @return int
      */
-    private static int convertBufferToInt(byte[] buf) {
-        return (((int) (buf[0] & 0xff)) + (((int) (buf[1] & 0xff)) << 8) + (((int) (buf[2] & 0xff)) << 16) + (((int) (buf[3] & 0xff)) << 24));
+    static int convertBufferToInt(byte[] buf) {
+        return ((buf[0] & 0xff) + ((buf[1] & 0xff) << 8) + ((buf[2] & 0xff) << 16) + ((buf[3] & 0xff) << 24));
     }
 
     public String getStringValue(String valueName) {
@@ -98,7 +97,7 @@ public class RegistryKey {
         lpcbData = new IntByReference();
 
         OUTER:
-        while(true) {
+        while (true) {
             int r = Advapi32.INSTANCE.RegQueryValueEx(handle, valueName, null, pType, lpData, lpcbData);
             switch (r) {
             case WINERROR.ERROR_MORE_DATA:
@@ -107,8 +106,10 @@ public class RegistryKey {
 
             case WINERROR.ERROR_SUCCESS:
                 return lpData;
+
+            default:
+                throw new JnaException(r);
             }
-            throw new JnaException(r);
         }
     }
 
@@ -126,7 +127,7 @@ public class RegistryKey {
      */
     public void setValue(String name, String value) {
         byte[] bytes = value.getBytes(StandardCharsets.UTF_16LE);
-        int newLength = bytes.length+2; // for 0 padding
+        int newLength = bytes.length + 2; // for 0 padding
         byte[] with0 = new byte[newLength];
         System.arraycopy(bytes, 0, with0, 0, newLength);
         check(Advapi32.INSTANCE.RegSetValueEx(handle, name, 0, WINNT.REG_SZ, with0, with0.length));
@@ -156,9 +157,9 @@ public class RegistryKey {
         lpcbData = new IntByReference();
 
         OUTER:
-        while(true) {
+        while (true) {
             int r = Advapi32.INSTANCE.RegQueryValueEx(handle, name, null, pType, lpData, lpcbData);
-            switch(r) {
+            switch (r) {
             case WINERROR.ERROR_MORE_DATA:
                 lpData = new byte[lpcbData.getValue()];
                 continue OUTER;
@@ -187,7 +188,7 @@ public class RegistryKey {
      */
     public Collection<String> getSubKeys() {
         WINBASE.FILETIME lpftLastWriteTime;
-        TreeSet<String> subKeys = new TreeSet<String>();
+        TreeSet<String> subKeys = new TreeSet<>();
         char[] lpName = new char[256];
         IntByReference lpcName = new IntByReference(256);
         lpftLastWriteTime = new WINBASE.FILETIME();
@@ -204,17 +205,17 @@ public class RegistryKey {
     }
 
     public RegistryKey open(String subKeyName) {
-        return open(subKeyName,0xF003F/*KEY_ALL_ACCESS*/);
+        return open(subKeyName, 0xF003F/*KEY_ALL_ACCESS*/);
     }
 
     public RegistryKey openReadonly(String subKeyName) {
-        return open(subKeyName,0x20019/*KEY_READ*/);
+        return open(subKeyName, 0x20019/*KEY_READ*/);
     }
 
     public RegistryKey open(String subKeyName, int access) {
         IntByReference pHandle = new IntByReference();
         check(Advapi32.INSTANCE.RegOpenKeyEx(handle, subKeyName, 0, access, pHandle));
-        return new RegistryKey(this,subKeyName,pHandle.getValue());
+        return new RegistryKey(this, subKeyName, pHandle.getValue());
     }
 
     /**
@@ -228,7 +229,7 @@ public class RegistryKey {
         byte[] lpData;
         IntByReference lpcchValueName, lpType, lpcbData;
         String name;
-        TreeMap<String, Object> values = new TreeMap<String, Object>(String.CASE_INSENSITIVE_ORDER);
+        TreeMap<String, Object> values = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
 
         lpValueName = new char[16384];
         lpcchValueName = new IntByReference(16384);
@@ -266,7 +267,7 @@ public class RegistryKey {
                     break; // not supported yet
                 }
                 break;
-            
+
             default:
                 check(result);
             }
@@ -276,16 +277,15 @@ public class RegistryKey {
     }
 
 
-    @Override
-    protected void finalize() throws Throwable {
-        super.finalize();
-        dispose();
-    }
-
     public void dispose() {
-        if(handle!=0)
+        if (handle != 0)
             Advapi32.INSTANCE.RegCloseKey(handle);
         handle = 0;
+    }
+
+    @Override
+    public void close() {
+        dispose();
     }
 
     //

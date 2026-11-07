@@ -1,18 +1,18 @@
 /*
  * The MIT License
- * 
+ *
  * Copyright (c) 2004-2009, Sun Microsystems, Inc., Kohsuke Kawaguchi
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in
  * all copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -21,12 +21,12 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package hudson.model.listeners;
 
-import com.google.common.base.Function;
-import hudson.ExtensionPoint;
-import hudson.ExtensionList;
 import hudson.Extension;
+import hudson.ExtensionList;
+import hudson.ExtensionPoint;
 import hudson.model.Failure;
 import hudson.model.Item;
 import hudson.model.ItemGroup;
@@ -34,6 +34,9 @@ import hudson.model.Items;
 import hudson.security.ACL;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import jenkins.util.Listeners;
+import org.kohsuke.accmod.Restricted;
+import org.kohsuke.accmod.restrictions.NoExternalUse;
 
 /**
  * Receives notifications about CRUD operations of {@link Item}.
@@ -91,6 +94,16 @@ public class ItemListener implements ExtensionPoint {
      * object.
      */
     public void onLoaded() {
+    }
+
+    /**
+     * Called before an item is deleted, providing the ability to veto the deletion operation before it starts.
+     * @param item the item being deleted
+     * @throws Failure to veto the operation.
+     * @throws InterruptedException If a blocking condition was interrupted, also vetoing the operation.
+     * @since 2.470
+     */
+    public void onCheckDelete(Item item) throws Failure, InterruptedException {
     }
 
     /**
@@ -171,24 +184,8 @@ public class ItemListener implements ExtensionPoint {
         return ExtensionList.lookup(ItemListener.class);
     }
 
-    // TODO JENKINS-21224 generalize this to a method perhaps in ExtensionList and use consistently from all listeners
-    private static void forAll(final /* java.util.function.Consumer<ItemListener> */Function<ItemListener,Void> consumer) {
-        for (ItemListener l : all()) {
-            try {
-                consumer.apply(l);
-            } catch (RuntimeException x) {
-                LOGGER.log(Level.WARNING, "failed to send event to listener of " + l.getClass(), x);
-            }
-        }
-    }
-
     public static void fireOnCopied(final Item src, final Item result) {
-        forAll(new Function<ItemListener,Void>() {
-            @Override public Void apply(ItemListener l) {
-                l.onCopied(src, result);
-                return null;
-            }
-        });
+        Listeners.notify(ItemListener.class, false, l -> l.onCopied(src, result));
     }
 
     /**
@@ -213,31 +210,29 @@ public class ItemListener implements ExtensionPoint {
     }
 
     public static void fireOnCreated(final Item item) {
-        forAll(new Function<ItemListener,Void>() {
-            @Override public Void apply(ItemListener l) {
-                l.onCreated(item);
-                return null;
-            }
-        });
+        Listeners.notify(ItemListener.class, false, l -> l.onCreated(item));
     }
 
     public static void fireOnUpdated(final Item item) {
-        forAll(new Function<ItemListener,Void>() {
-            @Override public Void apply(ItemListener l) {
-                l.onUpdated(item);
-                return null;
+        Listeners.notify(ItemListener.class, false, l -> l.onUpdated(item));
+    }
+
+    @Restricted(NoExternalUse.class)
+    public static void checkBeforeDelete(Item item) throws Failure, InterruptedException {
+        for (ItemListener l : all()) {
+            try {
+                l.onCheckDelete(item);
+            } catch (Failure e) {
+                throw e;
+            } catch (RuntimeException x) {
+                LOGGER.log(Level.WARNING, "failed to send event to listener of " + l.getClass(), x);
             }
-        });
+        }
     }
 
     /** @since 1.548 */
     public static void fireOnDeleted(final Item item) {
-        forAll(new Function<ItemListener,Void>() {
-            @Override public Void apply(ItemListener l) {
-                l.onDeleted(item);
-                return null;
-            }
-        });
+        Listeners.notify(ItemListener.class, false, l -> l.onDeleted(item));
     }
 
     /**
@@ -258,31 +253,16 @@ public class ItemListener implements ExtensionPoint {
             final String oldName = oldFullName.substring(prefixS);
             final String newName = rootItem.getName();
             assert newName.equals(newFullName.substring(prefixS));
-            forAll(new Function<ItemListener, Void>() {
-                @Override public Void apply(ItemListener l) {
-                    l.onRenamed(rootItem, oldName, newName);
-                    return null;
-                }
-            });
+            Listeners.notify(ItemListener.class, false, l -> l.onRenamed(rootItem, oldName, newName));
         }
-        forAll(new Function<ItemListener, Void>() {
-            @Override public Void apply(ItemListener l) {
-                l.onLocationChanged(rootItem, oldFullName, newFullName);
-                return null;
-            }
-        });
+        Listeners.notify(ItemListener.class, false, l -> l.onLocationChanged(rootItem, oldFullName, newFullName));
         if (rootItem instanceof ItemGroup) {
-            for (final Item child : Items.allItems(ACL.SYSTEM, (ItemGroup)rootItem, Item.class)) {
+            for (final Item child : Items.allItems2(ACL.SYSTEM2, (ItemGroup) rootItem, Item.class)) {
                 final String childNew = child.getFullName();
                 assert childNew.startsWith(newFullName);
                 assert childNew.charAt(newFullName.length()) == '/';
                 final String childOld = oldFullName + childNew.substring(newFullName.length());
-                forAll(new Function<ItemListener, Void>() {
-                    @Override public Void apply(ItemListener l) {
-                        l.onLocationChanged(child, childOld, childNew);
-                        return null;
-                    }
-                });
+                Listeners.notify(ItemListener.class, false, l -> l.onLocationChanged(child, childOld, childNew));
             }
         }
     }

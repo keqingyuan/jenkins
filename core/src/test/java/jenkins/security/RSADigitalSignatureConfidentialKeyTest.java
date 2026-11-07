@@ -21,32 +21,37 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package jenkins.security;
 
-import hudson.remoting.Base64;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.nio.charset.StandardCharsets;
 import java.security.Signature;
-import static org.junit.Assert.*;
-import org.junit.Rule;
-import org.junit.Test;
+import java.util.Base64;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
-public class RSADigitalSignatureConfidentialKeyTest {
-
-    @Rule
-    public ConfidentialStoreRule store = new ConfidentialStoreRule();
+class RSADigitalSignatureConfidentialKeyTest {
 
     private final RSADigitalSignatureConfidentialKey key = new RSADigitalSignatureConfidentialKey("test");
 
+    @BeforeEach
+    void setUp() {
+        ConfidentialStore.Mock.INSTANCE.clear();
+    }
+
     @Test
-    public void dsigSignAndVerify() throws Exception {
+    void dsigSignAndVerify() throws Exception {
         String plainText = "Hello world";
         String msg = key.sign(plainText);
         System.out.println(msg);
 
         Signature sig = Signature.getInstance("SHA256withRSA");
         sig.initVerify(key.getPublicKey());
-        sig.update(plainText.getBytes("UTF-8"));
+        sig.update(plainText.getBytes(StandardCharsets.UTF_8));
 
-        assertTrue(sig.verify(Base64.decode(msg)));
+        assertTrue(sig.verify(Base64.getDecoder().decode(msg)));
     }
 
 }

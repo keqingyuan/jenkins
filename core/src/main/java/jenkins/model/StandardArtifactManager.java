@@ -24,6 +24,8 @@
 
 package jenkins.model;
 
+import com.google.common.annotations.VisibleForTesting;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import hudson.FilePath;
 import hudson.Launcher;
 import hudson.Util;
@@ -34,7 +36,11 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import jenkins.security.XStreamNotDeserializable;
+import jenkins.util.SystemProperties;
 import jenkins.util.VirtualFile;
+import org.kohsuke.accmod.Restricted;
+import org.kohsuke.accmod.restrictions.NoExternalUse;
 
 /**
  * Default artifact manager which transfers files over the remoting channel and stores them inside the build directory.
@@ -45,20 +51,28 @@ public class StandardArtifactManager extends ArtifactManager {
 
     private static final Logger LOG = Logger.getLogger(StandardArtifactManager.class.getName());
 
-    protected transient Run<?,?> build;
+    @Restricted(NoExternalUse.class)
+    @VisibleForTesting
+    @SuppressFBWarnings(value = "MS_SHOULD_BE_FINAL", justification = "for script console")
+    public static FilePath.TarCompression TAR_COMPRESSION = SystemProperties.getBoolean(StandardArtifactManager.class.getName() + ".disableTrafficCompression")
+            ? FilePath.TarCompression.NONE
+            : FilePath.TarCompression.GZIP;
 
-    public StandardArtifactManager(Run<?,?> build) {
+    @XStreamNotDeserializable
+    protected transient Run<?, ?> build;
+
+    public StandardArtifactManager(Run<?, ?> build) {
         onLoad(build);
     }
 
-    @Override public final void onLoad(Run<?,?> build) {
+    @Override public final void onLoad(Run<?, ?> build) {
         this.build = build;
     }
 
-    @Override public void archive(FilePath workspace, Launcher launcher, BuildListener listener, final Map<String,String> artifacts) throws IOException, InterruptedException {
+    @Override public void archive(FilePath workspace, Launcher launcher, BuildListener listener, final Map<String, String> artifacts) throws IOException, InterruptedException {
         File dir = getArtifactsDir();
         String description = "transfer of " + artifacts.size() + " files"; // TODO improve when just one file
-        workspace.copyRecursiveTo(new FilePath.ExplicitlySpecifiedDirScanner(artifacts), new FilePath(dir), description);
+        workspace.copyRecursiveTo(new FilePath.ExplicitlySpecifiedDirScanner(artifacts), new FilePath(dir), description, TAR_COMPRESSION);
     }
 
     @Override public final boolean delete() throws IOException, InterruptedException {

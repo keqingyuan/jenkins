@@ -24,6 +24,6 @@
 
 def l = namespace(lib.LayoutTagLib)
 
-l.icon(class: 'icon-yellow icon-md')
-text(" ");
+l.icon(src:'symbol-status-yellow', class: 'icon-md')
+text(" ")
 text(my.message)

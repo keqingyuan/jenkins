@@ -24,91 +24,122 @@
 
 package hudson.cli;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
-import static org.junit.Assert.*;
-import org.junit.Test;
+import java.nio.charset.Charset;
+import org.junit.jupiter.api.Test;
 
-public class PlainCLIProtocolTest {
+class PlainCLIProtocolTest {
 
     @Test
-    public void ignoreUnknownOperations() throws Exception {
+    void ignoreUnknownOperations() throws Exception {
         final PipedOutputStream upload = new PipedOutputStream();
         final PipedOutputStream download = new PipedOutputStream();
         class Client extends PlainCLIProtocol.ClientSide {
             int code = -1;
             final ByteArrayOutputStream stdout = new ByteArrayOutputStream();
-            Client() throws IOException {
-                super(new PipedInputStream(download), upload);
+
+            Client() {
+                super(new PlainCLIProtocol.FramedOutput(upload));
             }
+
             @Override
             protected synchronized void onExit(int code) {
                 this.code = code;
                 notifyAll();
             }
+
             @Override
             protected void onStdout(byte[] chunk) throws IOException {
                 stdout.write(chunk);
             }
+
             @Override
             protected void onStderr(byte[] chunk) throws IOException {}
+
             @Override
             protected void handleClose() {}
+
             void send() throws IOException {
                 sendArg("command");
                 sendStart();
-                streamStdin().write("hello".getBytes());
+                streamStdin().write("hello".getBytes(Charset.defaultCharset()));
             }
+
             void newop() throws IOException {
+                DataOutputStream dos = new DataOutputStream(upload);
                 dos.writeInt(0);
                 dos.writeByte(99);
                 dos.flush();
             }
         }
+
         class Server extends PlainCLIProtocol.ServerSide {
             String arg;
             boolean started;
             final ByteArrayOutputStream stdin = new ByteArrayOutputStream();
+
             Server() throws IOException {
-                super(new PipedInputStream(upload), download);
+                super(new PlainCLIProtocol.FramedOutput(download));
             }
+
             @Override
             protected void onArg(String text) {
                 arg = text;
             }
+
             @Override
             protected void onLocale(String text) {}
+
             @Override
             protected void onEncoding(String text) {}
+
             @Override
             protected synchronized void onStart() {
                 started = true;
                 notifyAll();
             }
+
             @Override
             protected void onStdin(byte[] chunk) throws IOException {
+                /* To inject a race condition:
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException x) {
+                    throw new IOException(x);
+                }
+                */
                 stdin.write(chunk);
             }
+
             @Override
             protected void onEndStdin() throws IOException {}
+
             @Override
             protected void handleClose() {}
+
             void send() throws IOException {
-                streamStdout().write("goodbye".getBytes());
+                streamStdout().write("goodbye".getBytes(Charset.defaultCharset()));
                 sendExit(2);
             }
+
             void newop() throws IOException {
+                DataOutputStream dos = new DataOutputStream(download);
                 dos.writeInt(0);
                 dos.writeByte(99);
                 dos.flush();
             }
         }
+
         Client client = new Client();
         Server server = new Server();
-        client.begin();
-        server.begin();
+        new PlainCLIProtocol.FramedReader(client, new PipedInputStream(download)).start();
+        new PlainCLIProtocol.FramedReader(server, new PipedInputStream(upload)).start();
         client.send();
         client.newop();
         synchronized (server) {
@@ -123,9 +154,12 @@ public class PlainCLIProtocolTest {
                 client.wait();
             }
         }
-        assertEquals("hello", server.stdin.toString());
+        while (server.stdin.size() == 0) {
+            Thread.sleep(100);
+        }
+        assertEquals("hello", server.stdin.toString(Charset.defaultCharset()));
         assertEquals("command", server.arg);
-        assertEquals("goodbye", client.stdout.toString());
+        assertEquals("goodbye", client.stdout.toString(Charset.defaultCharset()));
         assertEquals(2, client.code);
     }
 

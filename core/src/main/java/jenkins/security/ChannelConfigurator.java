@@ -1,13 +1,15 @@
 package jenkins.security;
 
+import edu.umd.cs.findbugs.annotations.Nullable;
 import hudson.ExtensionList;
 import hudson.ExtensionPoint;
+import hudson.Proc;
 import hudson.remoting.Channel;
 import hudson.remoting.ChannelBuilder;
+import hudson.slaves.Channels;
 import hudson.slaves.SlaveComputer;
-import jenkins.model.Jenkins;
-
-import javax.annotation.Nullable;
+import java.io.OutputStream;
+import java.util.concurrent.ExecutorService;
 
 /**
  * Intercepts the new creation of {@link Channel} and tweak its configuration.
@@ -31,6 +33,8 @@ public abstract class ChannelConfigurator implements ExtensionPoint {
      *      <dl>
      *          <dt>{@link SlaveComputer}
      *          <dd>When a channel is being established to talk to a agent.
+     *          <dt>{@link Proc}
+     *          <dd>When {@link Channels#forProcess(String, ExecutorService, Process, OutputStream)} or overloads are used without a contextual {@link SlaveComputer}.
      *      </dl>
      */
     public void onChannelBuilding(ChannelBuilder builder, @Nullable Object context) {}
@@ -39,6 +43,6 @@ public abstract class ChannelConfigurator implements ExtensionPoint {
      * All the registered {@link ChannelConfigurator}s.
      */
     public static ExtensionList<ChannelConfigurator> all() {
-        return Jenkins.getInstance().getExtensionList(ChannelConfigurator.class);
+        return ExtensionList.lookup(ChannelConfigurator.class);
     }
 }

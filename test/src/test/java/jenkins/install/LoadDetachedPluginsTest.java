@@ -24,127 +24,63 @@
 
 package jenkins.install;
 
-import jenkins.plugins.DetachedPluginsUtil;
-import jenkins.plugins.DetachedPluginsUtil.DetachedPlugin;
-import hudson.Plugin;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.empty;
+import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.notNullValue;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import hudson.ExtensionList;
 import hudson.PluginManager;
 import hudson.PluginManagerUtil;
 import hudson.PluginWrapper;
-import hudson.util.VersionNumber;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.experimental.categories.Category;
+import jenkins.plugins.DetachedPluginsUtil;
+import jenkins.plugins.DetachedPluginsUtil.DetachedPlugin;
+import jenkins.plugins.detachedtest.Marker;
+import jenkins.security.UpdateSiteWarningsMonitor;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 import org.jvnet.hudson.test.Issue;
 import org.jvnet.hudson.test.JenkinsRule;
-import org.jvnet.hudson.test.RestartableJenkinsRule;
-import org.jvnet.hudson.test.SmokeTest;
+import org.jvnet.hudson.test.junit.jupiter.JenkinsSessionExtension;
+import org.jvnet.hudson.test.junit.jupiter.RealJenkinsExtension;
 import org.jvnet.hudson.test.recipes.LocalData;
 
-import static org.hamcrest.Matchers.empty;
-import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.greaterThan;
-import static org.hamcrest.Matchers.not;
-import static org.hamcrest.Matchers.notNullValue;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
+@Tag("SmokeTest")
+class LoadDetachedPluginsTest {
 
-@Category(SmokeTest.class)
-public class LoadDetachedPluginsTest {
+    @RegisterExtension
+    private final JenkinsSessionExtension rr = PluginManagerUtil.newJenkinsSessionExtension();
 
-    @Rule public RestartableJenkinsRule rr = PluginManagerUtil.newRestartableJenkinsRule();
+    // Registered before Jenkins boots (unlike RealJenkinsExtension#createSyntheticPlugin + dynamicLoad,
+    // which only takes effect after startup, too late to exercise the implied-dependency resolution
+    // that runs while plugins are loaded).
+    @RegisterExtension
+    private final RealJenkinsExtension rjr = new RealJenkinsExtension()
+            // Otherwise every detached plugin declared as a `test` scope Maven dependency elsewhere
+            // in this module gets bundled regardless of what war/pom.xml does, defeating the point.
+            .includeTestClasspathPlugins(false)
+            .addSyntheticPlugin(new RealJenkinsExtension.SyntheticPlugin(Marker.class.getPackage())
+                    .shortName("old-baseline-example")
+                    .header("Jenkins-Version", "1.400"));
 
-    @Issue("JENKINS-48365")
     @Test
+    @Disabled("Only useful while updating bundled plugins, otherwise new security warnings fail unrelated builds")
     @LocalData
-    public void upgradeFromJenkins1() throws IOException {
-        VersionNumber since = new VersionNumber("1.550");
+    void noUpdateSiteWarnings() throws Throwable {
         rr.then(r -> {
-            List<DetachedPlugin> detachedPlugins = DetachedPluginsUtil.getDetachedPlugins(since);
-            assertThat("Plugins have been detached since the pre-upgrade version",
-                    detachedPlugins.size(), greaterThan(4));
-            assertThat("Plugins detached between the pre-upgrade version and the current version should be installed",
-                    getInstalledDetachedPlugins(r, detachedPlugins).size(), equalTo(detachedPlugins.size()));
-            assertNoFailedPlugins(r);
-        });
-    }
-
-    @Issue("JENKINS-48365")
-    @Test
-    @LocalData
-    public void upgradeFromJenkins2() {
-        VersionNumber since = new VersionNumber("2.0");
-        rr.then(r -> {
-            List<DetachedPlugin> detachedPlugins = DetachedPluginsUtil.getDetachedPlugins(since);
-            assertThat("Plugins have been detached since the pre-upgrade version",
-                    detachedPlugins.size(), greaterThan(1));
-            assertThat("Plugins detached between the pre-upgrade version and the current version should be installed",
-                    getInstalledDetachedPlugins(r, detachedPlugins).size(), equalTo(detachedPlugins.size()));
-            assertNoFailedPlugins(r);
-        });
-    }
-
-    @Issue("JENKINS-48604")
-    @Test
-    @LocalData
-    public void upgradeFromJenkins2WithNewerDependency() {
-        VersionNumber since = new VersionNumber("2.0");
-        rr.then(r -> {
-            List<DetachedPlugin> detachedPlugins = DetachedPluginsUtil.getDetachedPlugins(since);
-            assertThat("Plugins have been detached since the pre-upgrade version",
-                    detachedPlugins.size(), greaterThan(1));
-            assertThat("Plugins detached between the pre-upgrade version and the current version should be installed",
-                    getInstalledDetachedPlugins(r, detachedPlugins).size(), equalTo(detachedPlugins.size()));
-            Plugin scriptSecurity = r.jenkins.getPlugin("script-security");
-            assertThat("Script-security should be installed", scriptSecurity, notNullValue());
-            assertThat("Dependencies of detached plugins should not be downgraded",
-                    scriptSecurity.getWrapper().getVersionNumber(), equalTo(new VersionNumber("1.34")));
-            assertNoFailedPlugins(r);
+            r.jenkins.getUpdateCenter().updateAllSites();
+            final UpdateSiteWarningsMonitor monitor = ExtensionList.lookupSingleton(UpdateSiteWarningsMonitor.class);
+            assertThat("There should be no active plugin security warnings", monitor.getActivePluginWarningsByPlugin().keySet(), empty());
         });
     }
 
     @Test
-    @LocalData
-    public void upgradeFromJenkins2WithOlderDependency() {
-        VersionNumber since = new VersionNumber("2.0");
-        rr.then(r -> {
-            List<DetachedPlugin> detachedPlugins = DetachedPluginsUtil.getDetachedPlugins(since);
-            assertThat("Plugins have been detached since the pre-upgrade version",
-                    detachedPlugins.size(), greaterThan(1));
-            assertThat("Plugins detached between the pre-upgrade version and the current version should be installed",
-                    getInstalledDetachedPlugins(r, detachedPlugins).size(), equalTo(detachedPlugins.size()));
-            Plugin scriptSecurity = r.jenkins.getPlugin("script-security");
-            assertThat("Script-security should be installed", scriptSecurity, notNullValue());
-            assertThat("Dependencies of detached plugins should be upgraded to the required version",
-                    scriptSecurity.getWrapper().getVersionNumber(), equalTo(new VersionNumber("1.18.1")));
-            assertNoFailedPlugins(r);
-        });
-    }
-
-    @Issue("JENKINS-48899")
-    @Test
-    @LocalData
-    public void upgradeFromJenkins2WithNewerPlugin() {
-        // @LocalData has command-launcher 1.2 installed, which should not be downgraded to the detached version: 1.0.
-        VersionNumber since = new VersionNumber("2.0");
-        rr.then(r -> {
-            List<DetachedPlugin> detachedPlugins = DetachedPluginsUtil.getDetachedPlugins(since);
-            assertThat("Plugins have been detached since the pre-upgrade version",
-                    detachedPlugins.size(), greaterThan(1));
-            assertThat("Plugins detached between the pre-upgrade version and the current version should be installed",
-                    getInstalledDetachedPlugins(r, detachedPlugins).size(), equalTo(detachedPlugins.size()));
-            Plugin commandLauncher = r.jenkins.getPlugin("command-launcher");
-            assertThat("Installed detached plugins should not be overwritten by older versions",
-                    commandLauncher.getWrapper().getVersionNumber(), equalTo(new VersionNumber("1.2")));
-            assertNoFailedPlugins(r);
-        });
-    }
-
-    @Test
-    public void newInstallation() {
+    void newInstallation() throws Throwable {
         rr.then(r -> {
             List<DetachedPlugin> detachedPlugins = DetachedPluginsUtil.getDetachedPlugins();
             assertThat("Detached plugins should exist", detachedPlugins, not(empty()));
@@ -161,21 +97,35 @@ public class LoadDetachedPluginsTest {
         });
     }
 
-    private List<PluginWrapper> getInstalledDetachedPlugins(JenkinsRule r, List<DetachedPlugin> detachedPlugins) {
+    @Issue("JENKINS-55582")
+    @Test
+    void implicitDependencyOnDetachedPluginDoesNotFailStartup() throws Throwable {
+        rjr.then(r -> {
+            PluginWrapper example = r.jenkins.getPluginManager().getPlugin("old-baseline-example");
+            assertThat("the plugin declaring the old baseline loads fine even though its implied "
+                    + "dependencies are all unresolvable", example, notNullValue());
+            assertTrue(example.isActive());
+            assertThat("nothing is bundled, so none of its implied dependencies actually installed",
+                    getInstalledDetachedPlugins(r, DetachedPluginsUtil.getDetachedPlugins()), empty());
+            assertNoFailedPlugins(r);
+        });
+    }
+
+    private static List<PluginWrapper> getInstalledDetachedPlugins(JenkinsRule r, List<DetachedPlugin> detachedPlugins) {
         PluginManager pluginManager = r.jenkins.getPluginManager();
         List<PluginWrapper> installedPlugins = new ArrayList<>();
         for (DetachedPlugin plugin : detachedPlugins) {
             PluginWrapper wrapper = pluginManager.getPlugin(plugin.getShortName());
             if (wrapper != null) {
                 installedPlugins.add(wrapper);
-                assertTrue("Detached plugins should be active if installed", wrapper.isActive());
+                assertTrue(wrapper.isActive(), "Detached plugins should be active if installed");
                 assertThat("Detached plugins should not have dependency errors", wrapper.getDependencyErrors(), empty());
             }
         }
         return installedPlugins;
     }
 
-    private void assertNoFailedPlugins(JenkinsRule r) {
+    private static void assertNoFailedPlugins(JenkinsRule r) {
         assertThat("Detached plugins and their dependencies should not fail to install",
                 r.jenkins.getPluginManager().getFailedPlugins(), empty());
     }

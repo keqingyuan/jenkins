@@ -1,31 +1,33 @@
 package jenkins.util;
 
-import org.junit.Test;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
-public class JenkinsJVMTest {
+import org.junit.jupiter.api.Test;
+
+class JenkinsJVMTest {
 
     @Test
-    public void checkNotJenkinsJVM_WhenNotInAJenkinsJVM() {
+    void checkNotJenkinsJVM_WhenNotInAJenkinsJVM() {
         JenkinsJVM.checkNotJenkinsJVM();
     }
 
-    @Test(expected = IllegalStateException.class)
-    public void checkJenkinsJVM_WhenNotInAJenkinsJVM() {
-        JenkinsJVM.checkJenkinsJVM();
+    @Test
+    void checkJenkinsJVM_WhenNotInAJenkinsJVM() {
+        assertThrows(IllegalStateException.class, JenkinsJVM::checkJenkinsJVM);
     }
 
-    @Test(expected = IllegalStateException.class)
-    public void checkNotJenkinsJVM_WhenInAJenkinsJVM() {
+    @Test
+    void checkNotJenkinsJVM_WhenInAJenkinsJVM() {
         JenkinsJVM.setJenkinsJVM(true);
         try {
-            JenkinsJVM.checkNotJenkinsJVM();
+            assertThrows(IllegalStateException.class, JenkinsJVM::checkNotJenkinsJVM);
         } finally {
             JenkinsJVM.setJenkinsJVM(false);
         }
     }
 
     @Test
-    public void checkJenkinsJVM_WhenInAJenkinsJVM() {
+    void checkJenkinsJVM_WhenInAJenkinsJVM() {
         JenkinsJVM.setJenkinsJVM(true);
         try {
             JenkinsJVM.checkJenkinsJVM();

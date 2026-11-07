@@ -1,18 +1,18 @@
 /*
  * The MIT License
- * 
+ *
  * Copyright (c) 2004-2009, Sun Microsystems, Inc., Kohsuke Kawaguchi, Stephen Connolly, CloudBees, Inc.
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in
  * all copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -21,30 +21,27 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package hudson;
 
+import edu.umd.cs.findbugs.annotations.CheckForNull;
+import edu.umd.cs.findbugs.annotations.NonNull;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import hudson.Proc.LocalProc;
+import hudson.Proc.ProcWithJenkins23271Patch;
 import hudson.model.Computer;
-import jenkins.util.MemoryReductionUtil;
-import hudson.util.QuotedStringTokenizer;
-import jenkins.model.Jenkins;
-import hudson.model.TaskListener;
 import hudson.model.Node;
+import hudson.model.Run;
+import hudson.model.TaskListener;
 import hudson.remoting.Channel;
 import hudson.remoting.Pipe;
 import hudson.remoting.RemoteInputStream;
 import hudson.remoting.RemoteOutputStream;
 import hudson.remoting.VirtualChannel;
-import hudson.util.StreamCopyThread;
 import hudson.util.ArgumentListBuilder;
 import hudson.util.ProcessTree;
-import jenkins.security.MasterToSlaveCallable;
-import org.apache.commons.io.input.NullInputStream;
-import org.kohsuke.accmod.Restricted;
-import org.kohsuke.accmod.restrictions.NoExternalUse;
-
-import javax.annotation.CheckForNull;
+import hudson.util.QuotedStringTokenizer;
+import hudson.util.StreamCopyThread;
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.IOException;
@@ -52,16 +49,22 @@ import java.io.InputStream;
 import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.io.Serializable;
-import java.util.Arrays;
-import java.util.Map;
-import java.util.List;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-
-import static org.apache.commons.io.output.NullOutputStream.NULL_OUTPUT_STREAM;
-import hudson.Proc.ProcWithJenkins23271Patch;
-import javax.annotation.Nonnull;
+import jenkins.agents.ControllerToAgentCallable;
+import jenkins.model.Jenkins;
+import jenkins.security.MasterToSlaveCallable;
+import jenkins.tasks.filters.EnvVarsFilterLocalRule;
+import jenkins.tasks.filters.EnvVarsFilterRuleWrapper;
+import jenkins.tasks.filters.EnvVarsFilterableBuilder;
+import jenkins.util.MemoryReductionUtil;
+import org.kohsuke.accmod.Restricted;
+import org.kohsuke.accmod.restrictions.Beta;
+import org.kohsuke.accmod.restrictions.NoExternalUse;
 
 /**
  * Starts a process.
@@ -81,17 +84,20 @@ import javax.annotation.Nonnull;
  *
  *
  * @author Kohsuke Kawaguchi
- * @see FilePath#createLauncher(TaskListener) 
+ * @see FilePath#createLauncher(TaskListener)
  */
 public abstract class Launcher {
 
-    @Nonnull
+    @NonNull
     protected final TaskListener listener;
 
     @CheckForNull
     protected final VirtualChannel channel;
 
-    public Launcher(@Nonnull TaskListener listener, @CheckForNull VirtualChannel channel) {
+    @Restricted(Beta.class)
+    protected EnvVarsFilterRuleWrapper envVarsFilterRuleWrapper;
+
+    protected Launcher(@NonNull TaskListener listener, @CheckForNull VirtualChannel channel) {
         this.listener = listener;
         this.channel = channel;
     }
@@ -100,8 +106,27 @@ public abstract class Launcher {
      * Constructor for a decorator.
      * @param launcher Launcher to be decorated
      */
-    protected Launcher(@Nonnull Launcher launcher) {
+    protected Launcher(@NonNull Launcher launcher) {
         this(launcher.listener, launcher.channel);
+    }
+
+    /**
+     * Build the environment filter rules that will be applied on the environment variables
+     * @param run The run that requested the command interpretation, could be <code>null</code> if outside of a run context.
+     * @param builder The builder that asked to run this command
+     *
+     * @since 2.246
+     */
+    @Restricted(Beta.class)
+    public void prepareFilterRules(@CheckForNull Run<?, ?> run, @NonNull EnvVarsFilterableBuilder builder) {
+        List<EnvVarsFilterLocalRule> specificRuleList = builder.buildEnvVarsFilterRules();
+        EnvVarsFilterRuleWrapper ruleWrapper = EnvVarsFilterRuleWrapper.createRuleWrapper(run, builder, this, specificRuleList);
+        this.setEnvVarsFilterRuleWrapper(ruleWrapper);
+    }
+
+    @Restricted(Beta.class)
+    protected void setEnvVarsFilterRuleWrapper(EnvVarsFilterRuleWrapper envVarsFilterRuleWrapper) {
+        this.envVarsFilterRuleWrapper = envVarsFilterRuleWrapper;
     }
 
     /**
@@ -110,7 +135,7 @@ public abstract class Launcher {
      * @return
      *      {@code null} if the target node is not configured to support this.
      *      this is a transitional measure.
-     *      Note that a launcher for the master is always non-null.
+     *      Note that a launcher for the built-in node is always non-null.
      */
     @CheckForNull
     public VirtualChannel getChannel() {
@@ -120,10 +145,10 @@ public abstract class Launcher {
     /**
      * Gets the {@link TaskListener} that this launcher uses to
      * report the commands that it's executing.
-     * 
+     *
      * @return Task listener
      */
-    @Nonnull
+    @NonNull
     public TaskListener getListener() {
         return listener;
     }
@@ -147,8 +172,8 @@ public abstract class Launcher {
     @Deprecated
     @CheckForNull
     public Computer getComputer() {
-        for( Computer c : Jenkins.getInstance().getComputers() )
-            if(c.getChannel()==channel)
+        for (Computer c : Jenkins.get().getComputers())
+            if (c.getChannel() == channel)
                 return c;
         return null;
     }
@@ -165,13 +190,20 @@ public abstract class Launcher {
         @CheckForNull
         protected FilePath pwd;
         @CheckForNull
-        protected OutputStream stdout = NULL_OUTPUT_STREAM, stderr;
+        protected OutputStream stdout = OutputStream.nullOutputStream(), stderr;
         @CheckForNull
         private TaskListener stdoutListener;
         @CheckForNull
         protected InputStream stdin = NULL_INPUT_STREAM;
         @CheckForNull
         protected String[] envs = null;
+        /**
+         * Represent the build step, either from legacy build process or from pipeline one
+         */
+        @CheckForNull
+        @Restricted(Beta.class)
+        protected EnvVarsFilterableBuilder envVarsFilterableBuilder = null;
+
         /**
          * True to reverse the I/O direction.
          *
@@ -197,14 +229,14 @@ public abstract class Launcher {
         }
 
         public ProcStarter cmds(File program, String... args) {
-            commands = new ArrayList<String>(args.length+1);
+            commands = new ArrayList<>(args.length + 1);
             commands.add(program.getPath());
             commands.addAll(Arrays.asList(args));
             return this;
         }
 
         public ProcStarter cmds(List<String> args) {
-            commands = new ArrayList<String>(args);
+            commands = new ArrayList<>(args);
             return this;
         }
 
@@ -256,7 +288,7 @@ public abstract class Launcher {
 
         /**
          * Sets the current directory.
-         * 
+         *
          * @param workDir Work directory to be used.
          *                If {@code null}, the default/current directory will be used by the process starter
          * @return {@code this}
@@ -266,11 +298,11 @@ public abstract class Launcher {
             return this;
         }
 
-        public ProcStarter pwd(@Nonnull File workDir) {
+        public ProcStarter pwd(@NonNull File workDir) {
             return pwd(new FilePath(workDir));
         }
 
-        public ProcStarter pwd(@Nonnull String workDir) {
+        public ProcStarter pwd(@NonNull String workDir) {
             return pwd(new File(workDir));
         }
 
@@ -281,8 +313,8 @@ public abstract class Launcher {
 
         /**
          * Sets STDOUT destination.
-         * 
-         * @param out Output stream. 
+         *
+         * @param out Output stream.
          *            Use {@code null} to send STDOUT to {@code /dev/null}.
          * @return {@code this}
          */
@@ -294,11 +326,11 @@ public abstract class Launcher {
 
         /**
          * Sends the stdout to the given {@link TaskListener}.
-         * 
+         *
          * @param out Task listener (must be safely remotable)
          * @return {@code this}
          */
-        public ProcStarter stdout(@Nonnull TaskListener out) {
+        public ProcStarter stdout(@NonNull TaskListener out) {
             stdout = out.getLogger();
             stdoutListener = out;
             return this;
@@ -306,7 +338,7 @@ public abstract class Launcher {
 
         /**
          * Gets current STDOUT destination.
-         * 
+         *
          * @return STDOUT output stream. {@code null} if STDOUT is suppressed or undefined.
          */
         @CheckForNull
@@ -325,7 +357,7 @@ public abstract class Launcher {
 
         /**
          * Gets current STDERR destination.
-         * 
+         *
          * @return STDERR output stream. {@code null} if suppressed or undefined.
          */
         @CheckForNull
@@ -336,10 +368,10 @@ public abstract class Launcher {
         /**
          * Controls where the stdin of the process comes from.
          * By default, {@code /dev/null}.
-         * 
+         *
          * @return {@code this}
          */
-        @Nonnull
+        @NonNull
         public ProcStarter stdin(@CheckForNull InputStream in) {
             this.stdin = in;
             return this;
@@ -347,7 +379,7 @@ public abstract class Launcher {
 
         /**
          * Gets current STDIN destination.
-         * 
+         *
          * @return STDIN output stream. {@code null} if suppressed or undefined.
          */
         @CheckForNull
@@ -362,11 +394,11 @@ public abstract class Launcher {
          * In addition to what the current process
          * is inherited (if this is going to be launched from a agent agent, that
          * becomes the "current" process), these variables will be also set.
-         * 
+         *
          * @param overrides Environment variables to be overridden
          * @return {@code this}
          */
-        public ProcStarter envs(@Nonnull Map<String, String> overrides) {
+        public ProcStarter envs(@NonNull Map<String, String> overrides) {
             this.envs = Util.mapToEnv(overrides);
             return this;
         }
@@ -374,7 +406,7 @@ public abstract class Launcher {
         /**
          * @param overrides
          *      List of "VAR=VALUE". See {@link #envs(Map)} for the semantics.
-         * 
+         *
          * @return {@code this}
          */
         public ProcStarter envs(@CheckForNull String... overrides) {
@@ -392,10 +424,10 @@ public abstract class Launcher {
         /**
          * Gets a list of environment variables to be set.
          * Returns an empty array if envs field has not been initialized.
-         * 
+         *
          * @return If initialized, returns a copy of internal envs array. Otherwise - a new empty array.
          */
-        @Nonnull
+        @NonNull
         public String[] envs() {
             return envs != null ? envs.clone() : MemoryReductionUtil.EMPTY_STRING_ARRAY;
         }
@@ -437,7 +469,7 @@ public abstract class Launcher {
          * Indicates that the caller will directly write to the child process {@link #stdin()} via {@link Proc#getStdin()}.
          * (Whereas by default you call {@link #stdin(InputStream)}
          * and let Jenkins pump your {@link InputStream} of choosing to stdin.)
-         * 
+         *
          * @return {@code this}
          * @since 1.399
          */
@@ -447,6 +479,26 @@ public abstract class Launcher {
             return this;
         }
 
+        /**
+         * Specify the build step that want to run the command to enable the environment filters
+         * @return {@code this}
+         * @since 2.246
+         */
+        @Restricted(Beta.class)
+        public ProcStarter buildStep(EnvVarsFilterableBuilder envVarsFilterableBuilder) {
+            this.envVarsFilterableBuilder = envVarsFilterableBuilder;
+            return this;
+        }
+
+        /**
+         * @return if set, returns the build step that wants to run the command
+         * @since 2.246
+         */
+        @Restricted(Beta.class)
+        public @CheckForNull
+        EnvVarsFilterableBuilder buildStep() {
+            return envVarsFilterableBuilder;
+        }
 
         /**
          * Starts the new process as configured.
@@ -465,7 +517,7 @@ public abstract class Launcher {
             // The logging around procHolderForJoin prevents the preliminary object deallocation we saw in JENKINS-23271
             final Proc procHolderForJoin = start();
             LOGGER.log(Level.FINER, "Started the process {0}", procHolderForJoin);
-            
+
             if (procHolderForJoin instanceof ProcWithJenkins23271Patch) {
                 return procHolderForJoin.join();
             } else {
@@ -493,9 +545,9 @@ public abstract class Launcher {
         /**
          * Copies a {@link ProcStarter}.
          */
-        @Nonnull
+        @NonNull
         public ProcStarter copy() {
-            ProcStarter rhs = new ProcStarter().cmds(commands).pwd(pwd).masks(masks).stdin(stdin).stdout(stdout).stderr(stderr).envs(envs).quiet(quiet);
+            ProcStarter rhs = new ProcStarter().cmds(commands).pwd(pwd).masks(masks).stdin(stdin).stdout(stdout).stderr(stderr).envs(envs).quiet(quiet).buildStep(envVarsFilterableBuilder);
             rhs.stdoutListener = stdoutListener;
             rhs.reverseStdin  = this.reverseStdin;
             rhs.reverseStderr = this.reverseStderr;
@@ -508,7 +560,7 @@ public abstract class Launcher {
      * Launches a process by using a {@linkplain ProcStarter builder-pattern} to configure
      * the parameters.
      */
-    @Nonnull
+    @NonNull
     public final ProcStarter launch() {
         return new ProcStarter();
     }
@@ -518,8 +570,8 @@ public abstract class Launcher {
      *      Use {@link #launch()} and its associated builder pattern
      */
     @Deprecated
-    public final Proc launch(String cmd, Map<String,String> env, OutputStream out, FilePath workDir) throws IOException {
-        return launch(cmd,Util.mapToEnv(env),out,workDir);
+    public final Proc launch(String cmd, Map<String, String> env, OutputStream out, FilePath workDir) throws IOException {
+        return launch(cmd, Util.mapToEnv(env), out, workDir);
     }
 
     /**
@@ -589,8 +641,8 @@ public abstract class Launcher {
      *      Use {@link #launch()} and its associated builder pattern
      */
     @Deprecated
-    public final Proc launch(String cmd,String[] env,OutputStream out, FilePath workDir) throws IOException {
-        return launch(Util.tokenize(cmd),env,out,workDir);
+    public final Proc launch(String cmd, String[] env, OutputStream out, FilePath workDir) throws IOException {
+        return launch(Util.tokenize(cmd), env, out, workDir);
     }
 
     /**
@@ -700,7 +752,7 @@ public abstract class Launcher {
     /**
      * Primarily invoked from {@link ProcStarter#start()} to start a process with a specific launcher.
      */
-    public abstract Proc launch(@Nonnull ProcStarter starter) throws IOException;
+    public abstract Proc launch(@NonNull ProcStarter starter) throws IOException;
 
     /**
      * Launches a specified process and connects its input/output to a {@link Channel}, then
@@ -709,7 +761,7 @@ public abstract class Launcher {
      * <p>
      * When the returned channel is terminated, the process will be killed.
      *
-     * @param cmd 
+     * @param cmd
      *      The commands.
      * @param out
      *      Where the stderr from the launched process will be sent.
@@ -721,29 +773,29 @@ public abstract class Launcher {
      *      is inherited (if this is going to be launched from an agent, that
      *      becomes the "current" process), these variables will be also set.
      */
-    public abstract Channel launchChannel(@Nonnull String[] cmd, @Nonnull OutputStream out, 
-            @CheckForNull FilePath workDir, @Nonnull Map<String,String> envVars) throws IOException, InterruptedException;
+    public abstract Channel launchChannel(@NonNull String[] cmd, @NonNull OutputStream out,
+            @CheckForNull FilePath workDir, @NonNull Map<String, String> envVars) throws IOException, InterruptedException;
 
     /**
      * Returns true if this {@link Launcher} is going to launch on Unix.
      */
     public boolean isUnix() {
-        return File.pathSeparatorChar==':';
+        return File.pathSeparatorChar == ':';
     }
 
     /**
      * Calls {@link ProcessTree#killAll(Map)} to kill processes.
      */
-    public abstract void kill(Map<String,String> modelEnvVars) throws IOException, InterruptedException;
+    public abstract void kill(Map<String, String> modelEnvVars) throws IOException, InterruptedException;
 
     /**
      * Prints out the command line to the listener so that users know what we are doing.
      */
-    protected final void printCommandLine(@Nonnull String[] cmd, @CheckForNull FilePath workDir) {
+    protected final void printCommandLine(@NonNull String[] cmd, @CheckForNull FilePath workDir) {
         StringBuilder buf = new StringBuilder();
         if (workDir != null) {
             buf.append('[');
-            if(showFullPath)
+            if (showFullPath)
                 buf.append(workDir.getRemote());
             else
                 buf.append(workDir.getRemote().replaceFirst("^.+[/\\\\]", ""));
@@ -752,15 +804,16 @@ public abstract class Launcher {
         buf.append('$');
         for (String c : cmd) {
             buf.append(' ');
-            if(c.indexOf(' ')>=0) {
-                if(c.indexOf('"')>=0)
+            if (c.indexOf(' ') >= 0) {
+                if (c.indexOf('"') >= 0)
                     buf.append('\'').append(c).append('\'');
                 else
                     buf.append('"').append(c).append('"');
             } else
                 buf.append(c);
         }
-        listener.getLogger().println(buf.toString());
+        listener.getLogger().println(buf);
+        listener.getLogger().flush();
     }
 
     /**
@@ -768,16 +821,16 @@ public abstract class Launcher {
      * recorded on the listener.
      *
      * @param cmd     The commands
-     * @param mask    An array of booleans which control whether a cmd element should be masked (<code>true</code>) or
-     *                remain unmasked (<code>false</code>).
+     * @param mask    An array of booleans which control whether a cmd element should be masked ({@code true}) or
+     *                remain unmasked ({@code false}).
      * @param workDir The work dir.
      */
-    protected final void maskedPrintCommandLine(@Nonnull List<String> cmd, @CheckForNull boolean[] mask, @CheckForNull FilePath workDir) {
-        if(mask==null) {
-            printCommandLine(cmd.toArray(new String[cmd.size()]),workDir);
+    protected final void maskedPrintCommandLine(@NonNull List<String> cmd, @CheckForNull boolean[] mask, @CheckForNull FilePath workDir) {
+        if (mask == null) {
+            printCommandLine(cmd.toArray(new String[0]), workDir);
             return;
         }
-        
+
         assert mask.length == cmd.size();
         final String[] masked = new String[cmd.size()];
         for (int i = 0; i < cmd.size(); i++) {
@@ -789,22 +842,22 @@ public abstract class Launcher {
         }
         printCommandLine(masked, workDir);
     }
-    
-    protected final void maskedPrintCommandLine(@Nonnull String[] cmd, @Nonnull boolean[] mask, @CheckForNull FilePath workDir) {
-        maskedPrintCommandLine(Arrays.asList(cmd),mask,workDir);
+
+    protected final void maskedPrintCommandLine(@NonNull String[] cmd, @NonNull boolean[] mask, @CheckForNull FilePath workDir) {
+        maskedPrintCommandLine(Arrays.asList(cmd), mask, workDir);
     }
 
     /**
      * Returns a decorated {@link Launcher} for the given node.
-     * 
+     *
      * @param node Node for which this launcher is created.
      * @return Decorated instance of the Launcher.
      */
-    @Nonnull
-    public final Launcher decorateFor(@Nonnull Node node) {
+    @NonNull
+    public final Launcher decorateFor(@NonNull Node node) {
         Launcher l = this;
         for (LauncherDecorator d : LauncherDecorator.all())
-            l = d.decorate(l,node);
+            l = d.decorate(l, node);
         return l;
     }
 
@@ -815,7 +868,7 @@ public abstract class Launcher {
      * @param prefix Prefixes to be appended
      * @since 1.299
      */
-    @Nonnull
+    @NonNull
     public final Launcher decorateByPrefix(final String... prefix) {
         final Launcher outer = this;
         return new Launcher(outer) {
@@ -823,10 +876,10 @@ public abstract class Launcher {
             public boolean isUnix() {
                 return outer.isUnix();
             }
- 
+
             @Override
             public Proc launch(ProcStarter starter) throws IOException {
-                starter.commands.addAll(0,Arrays.asList(prefix));
+                starter.commands.addAll(0, Arrays.asList(prefix));
                 boolean[] masks = starter.masks;
                 if (masks != null) {
                     starter.masks = prefix(masks);
@@ -836,7 +889,7 @@ public abstract class Launcher {
 
             @Override
             public Channel launchChannel(String[] cmd, OutputStream out, FilePath workDir, Map<String, String> envVars) throws IOException, InterruptedException {
-                return outer.launchChannel(prefix(cmd),out,workDir,envVars);
+                return outer.launchChannel(prefix(cmd), out, workDir, envVars);
             }
 
             @Override
@@ -844,16 +897,16 @@ public abstract class Launcher {
                 outer.kill(modelEnvVars);
             }
 
-            private String[] prefix(@Nonnull String[] args) {
-                String[] newArgs = new String[args.length+prefix.length];
-                System.arraycopy(prefix,0,newArgs,0,prefix.length);
-                System.arraycopy(args,0,newArgs,prefix.length,args.length);
+            private String[] prefix(@NonNull String[] args) {
+                String[] newArgs = new String[args.length + prefix.length];
+                System.arraycopy(prefix, 0, newArgs, 0, prefix.length);
+                System.arraycopy(args, 0, newArgs, prefix.length, args.length);
                 return newArgs;
             }
 
-            private boolean[] prefix(@Nonnull boolean[] args) {
-                boolean[] newArgs = new boolean[args.length+prefix.length];
-                System.arraycopy(args,0,newArgs,prefix.length,args.length);
+            private boolean[] prefix(@NonNull boolean[] args) {
+                boolean[] newArgs = new boolean[args.length + prefix.length];
+                System.arraycopy(args, 0, newArgs, prefix.length, args.length);
                 return newArgs;
             }
         };
@@ -868,8 +921,8 @@ public abstract class Launcher {
      *
      * @since 1.489
      */
-    @Nonnull
-    public final Launcher decorateByEnv(@Nonnull EnvVars _env) {
+    @NonNull
+    public final Launcher decorateByEnv(@NonNull EnvVars _env) {
         final EnvVars env = new EnvVars(_env);
         final Launcher outer = this;
         return new Launcher(outer) {
@@ -881,7 +934,7 @@ public abstract class Launcher {
             @Override
             public Proc launch(ProcStarter starter) throws IOException {
                 EnvVars e = new EnvVars(env);
-                if (starter.envs!=null) {
+                if (starter.envs != null) {
                     for (String env : starter.envs) {
                         e.addLine(env);
                     }
@@ -894,7 +947,7 @@ public abstract class Launcher {
             public Channel launchChannel(String[] cmd, OutputStream out, FilePath workDir, Map<String, String> envVars) throws IOException, InterruptedException {
                 EnvVars e = new EnvVars(env);
                 e.putAll(envVars);
-                return outer.launchChannel(cmd,out,workDir,e);
+                return outer.launchChannel(cmd, out, workDir, e);
             }
 
             @Override
@@ -908,7 +961,7 @@ public abstract class Launcher {
      * {@link Launcher} that launches process locally.
      */
     public static class LocalLauncher extends Launcher {
-        public LocalLauncher(@Nonnull TaskListener listener) {
+        public LocalLauncher(@NonNull TaskListener listener) {
             this(listener, FilePath.localChannel);
         }
 
@@ -924,28 +977,36 @@ public abstract class Launcher {
 
             EnvVars jobEnv = inherit(ps.envs);
 
+            if (envVarsFilterRuleWrapper != null) {
+                envVarsFilterRuleWrapper.filter(jobEnv, this, listener);
+                // reset the rules to prevent build step without rules configuration to re-use those
+                envVarsFilterRuleWrapper = null;
+            }
+
             // replace variables in command line
             String[] jobCmd = new String[ps.commands.size()];
-            for ( int idx = 0 ; idx < jobCmd.length; idx++ )
-            	jobCmd[idx] = jobEnv.expand(ps.commands.get(idx));
+            for (int idx = 0; idx < jobCmd.length; idx++)
+                jobCmd[idx] = jobEnv.expand(ps.commands.get(idx));
 
             return new LocalProc(jobCmd, Util.mapToEnv(jobEnv),
-                    ps.reverseStdin ?LocalProc.SELFPUMP_INPUT:ps.stdin,
-                    ps.reverseStdout?LocalProc.SELFPUMP_OUTPUT:ps.stdout,
-                    ps.reverseStderr?LocalProc.SELFPUMP_OUTPUT:ps.stderr,
+                    ps.reverseStdin ? LocalProc.SELFPUMP_INPUT : ps.stdin,
+                    ps.reverseStdout ? LocalProc.SELFPUMP_OUTPUT : ps.stdout,
+                    ps.reverseStderr ? LocalProc.SELFPUMP_OUTPUT : ps.stderr,
                     toFile(ps.pwd));
         }
 
         private File toFile(FilePath f) {
-            return f==null ? null : new File(f.getRemote());
+            return f == null ? null : new File(f.getRemote());
         }
 
-        public Channel launchChannel(String[] cmd, OutputStream out, FilePath workDir, Map<String,String> envVars) throws IOException {
+        @Override
+        @SuppressFBWarnings(value = "COMMAND_INJECTION", justification = "TODO needs triage")
+        public Channel launchChannel(String[] cmd, OutputStream out, FilePath workDir, Map<String, String> envVars) throws IOException {
             printCommandLine(cmd, workDir);
 
             ProcessBuilder pb = new ProcessBuilder(cmd);
             pb.directory(toFile(workDir));
-            if (envVars!=null) pb.environment().putAll(envVars);
+            if (envVars != null) pb.environment().putAll(envVars);
 
             return launchChannel(out, pb);
         }
@@ -965,10 +1026,10 @@ public abstract class Launcher {
 
             final Process proc = pb.start();
 
-            final Thread t2 = new StreamCopyThread(pb.command()+": stderr copier", proc.getErrorStream(), out);
+            final Thread t2 = new StreamCopyThread(pb.command() + ": stderr copier", proc.getErrorStream(), out);
             t2.start();
 
-            return new Channel("locally launched channel on "+ pb.command(),
+            return new Channel("locally launched channel on " + pb.command(),
                 Computer.threadPoolForRemoting, proc.getInputStream(), proc.getOutputStream(), out) {
 
                 /**
@@ -979,7 +1040,7 @@ public abstract class Launcher {
                     super.terminate(e);
                     ProcessTree pt = ProcessTree.get();
                     try {
-                        pt.killAll(proc,cookie);
+                        pt.killAll(proc, cookie);
                     } catch (InterruptedException x) {
                         LOGGER.log(Level.INFO, "Interrupted", x);
                     }
@@ -1003,7 +1064,7 @@ public abstract class Launcher {
     @Restricted(NoExternalUse.class)
     public static class DummyLauncher extends Launcher {
 
-        public DummyLauncher(@Nonnull TaskListener listener) {
+        public DummyLauncher(@NonNull TaskListener listener) {
             super(listener, null);
         }
 
@@ -1030,15 +1091,13 @@ public abstract class Launcher {
     public static class RemoteLauncher extends Launcher {
         private final boolean isUnix;
 
-        public RemoteLauncher(@Nonnull TaskListener listener, @Nonnull VirtualChannel channel, boolean isUnix) {
+        public RemoteLauncher(@NonNull TaskListener listener, @NonNull VirtualChannel channel, boolean isUnix) {
             super(listener, channel);
             this.isUnix = isUnix;
         }
 
         @Override
-        @Nonnull
-        @SuppressFBWarnings(value = "NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE", 
-                justification = "We always require nonnull channel when we initialize this launcher")
+        @NonNull
         public VirtualChannel getChannel() {
             VirtualChannel vc = super.getChannel();
             if (vc == null) {
@@ -1047,31 +1106,49 @@ public abstract class Launcher {
             return super.getChannel();
         }
 
+        @Override
         public Proc launch(ProcStarter ps) throws IOException {
             final OutputStream out = ps.stdout == null || ps.stdoutListener != null ? null : new RemoteOutputStream(new CloseProofOutputStream(ps.stdout));
-            final OutputStream err = ps.stderr==null ? null : new RemoteOutputStream(new CloseProofOutputStream(ps.stderr));
-            final InputStream  in  = (ps.stdin==null || ps.stdin==NULL_INPUT_STREAM) ? null : new RemoteInputStream(ps.stdin,false);
-            
+            final OutputStream err = ps.stderr == null ? null : new RemoteOutputStream(new CloseProofOutputStream(ps.stderr));
+            final InputStream in = ps.stdin == null || ps.stdin == NULL_INPUT_STREAM ? null : new RemoteInputStream(ps.stdin, false);
+
             final FilePath psPwd = ps.pwd;
-            final String workDir = psPwd==null ? null : psPwd.getRemote();
+            final String workDir = psPwd == null ? null : psPwd.getRemote();
 
             try {
-                return new ProcImpl(getChannel().call(new RemoteLaunchCallable(ps.commands, ps.masks, ps.envs, in, ps.reverseStdin, out, ps.reverseStdout, err, ps.reverseStderr, ps.quiet, workDir, listener, ps.stdoutListener)));
+                RemoteLaunchCallable remote = new RemoteLaunchCallable(
+                        ps.commands,
+                        ps.masks,
+                        ps.envs,
+                        in,
+                        ps.reverseStdin,
+                        out,
+                        ps.reverseStdout,
+                        err,
+                        ps.reverseStderr,
+                        ps.quiet,
+                        workDir,
+                        listener,
+                        ps.stdoutListener,
+                        envVarsFilterRuleWrapper);
+                // reset the rules to prevent build step without rules configuration to re-use those
+                envVarsFilterRuleWrapper = null;
+                return new ProcImpl(getChannel().call(remote));
             } catch (InterruptedException e) {
-                throw (IOException)new InterruptedIOException().initCause(e);
+                throw (IOException) new InterruptedIOException().initCause(e);
             }
         }
 
         @Override
-        public Channel launchChannel(String[] cmd, OutputStream err, FilePath _workDir, Map<String,String> envOverrides) throws IOException, InterruptedException {
+        public Channel launchChannel(String[] cmd, OutputStream err, FilePath _workDir, Map<String, String> envOverrides) throws IOException, InterruptedException {
             printCommandLine(cmd, _workDir);
 
             Pipe out = Pipe.createRemoteToLocal();
-            final String workDir = _workDir==null ? null : _workDir.getRemote();
+            final String workDir = _workDir == null ? null : _workDir.getRemote();
 
             OutputStream os = getChannel().call(new RemoteChannelLaunchCallable(cmd, out, err, workDir, envOverrides));
 
-            return new Channel("remotely launched channel on "+channel,
+            return new Channel("remotely launched channel on " + channel,
                 Computer.threadPoolForRemoting, out.getIn(), new BufferedOutputStream(os));
         }
 
@@ -1081,17 +1158,23 @@ public abstract class Launcher {
         }
 
         @Override
-        public void kill(final Map<String,String> modelEnvVars) throws IOException, InterruptedException {
+        public void kill(final Map<String, String> modelEnvVars) throws IOException, InterruptedException {
             getChannel().call(new KillTask(modelEnvVars));
         }
 
-        private static final class KillTask extends MasterToSlaveCallable<Void,RuntimeException> {
+        @Override
+        public String toString() {
+            return "RemoteLauncher[" + getChannel() + "]";
+        }
+
+        private static final class KillTask extends MasterToSlaveCallable<Void, RuntimeException> {
             private final Map<String, String> modelEnvVars;
 
-            public KillTask(Map<String, String> modelEnvVars) {
+            KillTask(Map<String, String> modelEnvVars) {
                 this.modelEnvVars = modelEnvVars;
             }
 
+            @Override
             public Void call() throws RuntimeException {
                 try {
                     ProcessTree.get().killAll(modelEnvVars);
@@ -1160,14 +1243,14 @@ public abstract class Launcher {
             }
         }
     }
-    
+
     /**
-     * A launcher which delegates to a provided inner launcher. 
+     * A launcher which delegates to a provided inner launcher.
      * Allows subclasses to only implement methods they want to override.
-     * Originally, this launcher has been implemented in 
+     * Originally, this launcher has been implemented in
      * <a href="https://plugins.jenkins.io/custom-tools-plugin">
      * Custom Tools Plugin</a>.
-     * 
+     *
      * @author rcampbell
      * @author Oleg Nenashev, Synopsys Inc.
      * @since 1.568
@@ -1176,7 +1259,7 @@ public abstract class Launcher {
 
         private final Launcher inner;
 
-        public DecoratedLauncher(@Nonnull Launcher inner) {
+        public DecoratedLauncher(@NonNull Launcher inner) {
             super(inner);
             this.inner = inner;
         }
@@ -1231,88 +1314,70 @@ public abstract class Launcher {
 
         @Override
         public Proc launch(String[] cmd, String[] env, InputStream in, OutputStream out, FilePath workDir) throws IOException {
-            return inner.launch(cmd, env, in, out, workDir); 
+            return inner.launch(cmd, env, in, out, workDir);
         }
-   
+
         /**
          * Gets nested launcher.
          * @return Inner launcher
          */
-        @Nonnull
+        @NonNull
         public Launcher getInner() {
             return inner;
-        }    
+        }
     }
 
     public static class IOTriplet implements Serializable {
-        @Nonnull
-        InputStream stdout,stderr;
-        @Nonnull
+        @CheckForNull
+        InputStream stdout, stderr;
+        @CheckForNull
         OutputStream stdin;
         private static final long serialVersionUID = 1L;
     }
     /**
      * Remoting interface of a remote process
      */
+
     public interface RemoteProcess {
         int join() throws InterruptedException, IOException;
+
         void kill() throws IOException, InterruptedException;
+
         boolean isAlive() throws IOException, InterruptedException;
-        
-        @Nonnull
+
+        @NonNull
         IOTriplet getIOtriplet();
     }
 
-    private static class RemoteLaunchCallable extends MasterToSlaveCallable<RemoteProcess,IOException> {
-        private final @Nonnull List<String> cmd;
-        private final @CheckForNull boolean[] masks;
-        private final @CheckForNull String[] env;
-        private final @CheckForNull InputStream in;
-        private final @CheckForNull OutputStream out;
-        private final @CheckForNull OutputStream err;
-        private final @CheckForNull String workDir;
-        private final @Nonnull TaskListener listener;
-        private final @CheckForNull TaskListener stdoutListener;
-        private final boolean reverseStdin, reverseStdout, reverseStderr;
-        private final boolean quiet;
-
-        RemoteLaunchCallable(@Nonnull List<String> cmd, @CheckForNull boolean[] masks, @CheckForNull String[] env, 
-                @CheckForNull InputStream in, boolean reverseStdin, 
-                @CheckForNull OutputStream out, boolean reverseStdout, 
-                @CheckForNull OutputStream err, boolean reverseStderr, 
-                boolean quiet, @CheckForNull String workDir, @Nonnull TaskListener listener, @CheckForNull TaskListener stdoutListener) {
-            this.cmd = new ArrayList<>(cmd);
-            this.masks = masks;
-            this.env = env;
-            this.in = in;
-            this.out = out;
-            this.err = err;
-            this.workDir = workDir;
-            this.listener = listener;
-            this.stdoutListener = stdoutListener;
-            this.reverseStdin = reverseStdin;
-            this.reverseStdout = reverseStdout;
-            this.reverseStderr = reverseStderr;
-            this.quiet = quiet;
-        }
-
+    private record RemoteLaunchCallable(@NonNull List<String> cmd, @CheckForNull boolean[] masks, @CheckForNull String[] env,
+                @CheckForNull InputStream in, boolean reverseStdin,
+                @CheckForNull OutputStream out, boolean reverseStdout,
+                @CheckForNull OutputStream err, boolean reverseStderr,
+                boolean quiet, @CheckForNull String workDir,
+                @NonNull TaskListener listener, @CheckForNull TaskListener stdoutListener,
+                @CheckForNull EnvVarsFilterRuleWrapper envVarsFilterRuleWrapper) implements ControllerToAgentCallable<RemoteProcess, IOException> {
+        @Override
         public RemoteProcess call() throws IOException {
             final Channel channel = getOpenChannelOrFail();
-            Launcher.ProcStarter ps = new LocalLauncher(listener).launch();
+            LocalLauncher localLauncher = new LocalLauncher(listener);
+            localLauncher.setEnvVarsFilterRuleWrapper(envVarsFilterRuleWrapper);
+
+            Launcher.ProcStarter ps = localLauncher.launch();
             ps.cmds(cmd).masks(masks).envs(env).stdin(in).stderr(err).quiet(quiet);
             if (stdoutListener != null) {
                 ps.stdout(stdoutListener.getLogger());
             } else {
                 ps.stdout(out);
             }
-            if(workDir!=null)   ps.pwd(workDir);
+            if (workDir != null)   ps.pwd(workDir);
             if (reverseStdin)   ps.writeStdin();
             if (reverseStdout)  ps.readStdout();
             if (reverseStderr)  ps.readStderr();
 
             final Proc p = ps.start();
 
-            return channel.export(RemoteProcess.class,new RemoteProcess() {
+            return channel.export(RemoteProcess.class, new RemoteProcess() {
+                @Override
                 public int join() throws InterruptedException, IOException {
                     try {
                         return p.join();
@@ -1321,11 +1386,7 @@ public abstract class Launcher {
                         Channel taskChannel = null;
                         try {
                             // Sync IO will fail automatically if the channel is being closed, no need to use getOpenChannelOrFail()
-                            // TODOL Replace by Channel#currentOrFail() when Remoting version allows
-                            taskChannel = Channel.current();
-                            if (taskChannel == null) {
-                                throw new IOException("No Remoting channel associated with this thread");
-                            }
+                            taskChannel = Channel.currentOrFail();
                             taskChannel.syncIO();
                         } catch (Throwable t) {
                             // this includes a failure to sync, agent.jar too old, etc
@@ -1334,14 +1395,17 @@ public abstract class Launcher {
                     }
                 }
 
+                @Override
                 public void kill() throws IOException, InterruptedException {
                     p.kill();
                 }
 
+                @Override
                 public boolean isAlive() throws IOException, InterruptedException {
                     return p.isAlive();
                 }
 
+                @Override
                 public IOTriplet getIOtriplet() {
                     IOTriplet r = new IOTriplet();
                     if (reverseStdout)  r.stdout = new RemoteInputStream(p.getStdout());
@@ -1351,24 +1415,22 @@ public abstract class Launcher {
                 }
             });
         }
-
-        private static final long serialVersionUID = 1L;
     }
 
-    private static class RemoteChannelLaunchCallable extends MasterToSlaveCallable<OutputStream,IOException> {
-        @Nonnull
+    private static class RemoteChannelLaunchCallable extends MasterToSlaveCallable<OutputStream, IOException> {
+        @NonNull
         private final String[] cmd;
-        @Nonnull
+        @NonNull
         private final Pipe out;
         @CheckForNull
         private final String workDir;
-        @Nonnull
+        @NonNull
         private final OutputStream err;
-        @Nonnull
-        private final Map<String,String> envOverrides;
+        @NonNull
+        private final Map<String, String> envOverrides;
 
-        public RemoteChannelLaunchCallable(@Nonnull String[] cmd, @Nonnull Pipe out, @Nonnull OutputStream err, 
-                @CheckForNull String workDir, @Nonnull Map<String,String> envOverrides) {
+        RemoteChannelLaunchCallable(@NonNull String[] cmd, @NonNull Pipe out, @NonNull OutputStream err,
+                @CheckForNull String workDir, @NonNull Map<String, String> envOverrides) {
             this.cmd = cmd;
             this.out = out;
             this.err = new RemoteOutputStream(err);
@@ -1376,15 +1438,20 @@ public abstract class Launcher {
             this.envOverrides = envOverrides;
         }
 
+        @SuppressFBWarnings(value = "COMMAND_INJECTION", justification = "TODO needs triage")
+        private Process launchProcess() throws IOException {
+            return Runtime.getRuntime()
+                    .exec(cmd, Util.mapToEnv(inherit(envOverrides)), workDir == null ? null : new File(workDir));
+        }
+
+        @Override
         public OutputStream call() throws IOException {
-            Process p = Runtime.getRuntime().exec(cmd,
-                Util.mapToEnv(inherit(envOverrides)),
-                workDir == null ? null : new File(workDir));
+            Process p = launchProcess();
 
             List<String> cmdLines = Arrays.asList(cmd);
-            new StreamCopyThread("stdin copier for remote agent on "+cmdLines,
+            new StreamCopyThread("stdin copier for remote agent on " + cmdLines,
                 p.getInputStream(), out.getOut()).start();
-            new StreamCopyThread("stderr copier for remote agent on "+cmdLines,
+            new StreamCopyThread("stderr copier for remote agent on " + cmdLines,
                 p.getErrorStream(), err).start();
 
             // TODO: don't we need to join?
@@ -1401,10 +1468,10 @@ public abstract class Launcher {
     private static EnvVars inherit(@CheckForNull String[] env) {
         // convert String[] to Map first
         EnvVars m = new EnvVars();
-        if(env!=null) {
+        if (env != null) {
             for (String e : env) {
                 int index = e.indexOf('=');
-                m.put(e.substring(0,index), e.substring(index+1));
+                m.put(e.substring(0, index), e.substring(index + 1));
             }
         }
         // then do the inheritance
@@ -1414,18 +1481,19 @@ public abstract class Launcher {
     /**
      * Expands the list of environment variables by inheriting current env variables.
      */
-    private static EnvVars inherit(@Nonnull Map<String,String> overrides) {
+    private static EnvVars inherit(@NonNull Map<String, String> overrides) {
         EnvVars m = new EnvVars(EnvVars.masterEnvVars);
         m.overrideExpandingAll(overrides);
         return m;
     }
-    
+
     /**
      * Debug option to display full current path instead of just the last token.
      */
+    @SuppressFBWarnings(value = "MS_SHOULD_BE_FINAL", justification = "for debugging")
     public static boolean showFullPath = false;
 
-    private static final NullInputStream NULL_INPUT_STREAM = new NullInputStream(0);
+    private static final InputStream NULL_INPUT_STREAM = InputStream.nullInputStream();
 
     private static final Logger LOGGER = Logger.getLogger(Launcher.class.getName());
 }

@@ -36,7 +36,6 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.logging.Logger;
 
-
 /**
  * <p>Transparently coalesces chunks of a HTTP stream that uses
  * Transfer-Encoding chunked.</p>
@@ -109,20 +108,10 @@ public class ChunkedInputStream extends InputStream {
      * byte
      * @throws IOException If an IO problem occurs
      */
+    @Override
     public int read() throws IOException {
 
-        if (closed) {
-            throw new IOException("Attempted read from closed stream.");
-        }
-        if (eof) {
-            return -1;
-        }
-        if (pos >= chunkSize) {
-            nextChunk();
-            if (eof) {
-                return -1;
-            }
-        }
+        if (advanceChunk()) return -1;
         pos++;
         return in.read();
     }
@@ -139,25 +128,30 @@ public class ChunkedInputStream extends InputStream {
      * @throws IOException if an IO problem occurs.
      */
     @Override
-    public int read (byte[] b, int off, int len) throws IOException {
+    public int read(byte[] b, int off, int len) throws IOException {
 
+        if (advanceChunk()) return -1;
+        len = Math.min(len, chunkSize - pos);
+        int count = in.read(b, off, len);
+        pos += count;
+        return count;
+    }
+
+    private boolean advanceChunk() throws IOException {
         if (closed) {
             throw new IOException("Attempted read from closed stream.");
         }
 
         if (eof) {
-            return -1;
+            return true;
         }
         if (pos >= chunkSize) {
             nextChunk();
             if (eof) {
-                return -1;
+                return true;
             }
         }
-        len = Math.min(len, chunkSize - pos);
-        int count = in.read(b, off, len);
-        pos += count;
-        return count;
+        return false;
     }
 
     /**
@@ -169,7 +163,7 @@ public class ChunkedInputStream extends InputStream {
      * @throws IOException if an IO problem occurs.
      */
     @Override
-    public int read (byte[] b) throws IOException {
+    public int read(byte[] b) throws IOException {
         return read(b, 0, b.length);
     }
 
@@ -180,7 +174,7 @@ public class ChunkedInputStream extends InputStream {
     private void readCRLF() throws IOException {
         int cr = in.read();
         int lf = in.read();
-        if ((cr != '\r') || (lf != '\n')) {
+        if (cr != '\r' || lf != '\n') {
             throw new IOException(
                 "CRLF expected at end of chunk: " + cr + "/" + lf);
         }
@@ -267,9 +261,9 @@ public class ChunkedInputStream extends InputStream {
         }
 
         //parse data
-        String dataString = new String(baos.toByteArray(), StandardCharsets.US_ASCII);
+        String dataString = baos.toString(StandardCharsets.US_ASCII);
         int separator = dataString.indexOf(';');
-        dataString = (separator > 0)
+        dataString = separator > 0
             ? dataString.substring(0, separator).trim()
             : dataString.trim();
 
@@ -277,7 +271,7 @@ public class ChunkedInputStream extends InputStream {
         try {
             result = Integer.parseInt(dataString.trim(), 16);
         } catch (NumberFormatException e) {
-            throw new IOException ("Bad chunk size: " + dataString);
+            throw new IOException("Bad chunk size: " + dataString, e);
         }
         return result;
     }
@@ -289,25 +283,6 @@ public class ChunkedInputStream extends InputStream {
     private void parseTrailerHeaders() throws IOException {
         // I feel lazy. No trailing header support
         readCRLF();
-
-//        Header[] footers = null;
-//        try {
-//            String charset = "US-ASCII";
-//            if (this.method != null) {
-//                charset = this.method.getParams().getHttpElementCharset();
-//            }
-//            footers = HttpParser.parseHeaders(in, charset);
-//        } catch(HttpException e) {
-//            LOG.error("Error parsing trailer headers", e);
-//            IOException ioe = new IOException(e.getMessage());
-//            ExceptionUtil.initCause(ioe, e);
-//            throw ioe;
-//        }
-//        if (this.method != null) {
-//            for (int i = 0; i < footers.length; i++) {
-//                this.method.addResponseFooter(footers[i]);
-//            }
-//        }
     }
 
     /**
@@ -344,7 +319,8 @@ public class ChunkedInputStream extends InputStream {
     static void exhaustInputStream(InputStream inStream) throws IOException {
         // read and discard the remainder of the message
         byte[] buffer = new byte[1024];
-        while (inStream.read(buffer) >= 0) {
-        }
+        //noinspection StatementWithEmptyBody
+        while (inStream.read(buffer) >= 0)
+            ;
     }
 }

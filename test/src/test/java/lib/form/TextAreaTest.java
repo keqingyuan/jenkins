@@ -1,31 +1,38 @@
 package lib.form;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 import hudson.model.AbstractProject;
 import hudson.model.FreeStyleProject;
 import hudson.tasks.BuildStepDescriptor;
 import hudson.tasks.Builder;
 import hudson.util.FormValidation;
-import javax.inject.Inject;
-import static org.junit.Assert.*;
-import org.junit.Rule;
-import org.junit.Test;
+import jakarta.inject.Inject;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.Issue;
 import org.jvnet.hudson.test.JenkinsRule;
 import org.jvnet.hudson.test.TestExtension;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.QueryParameter;
 
-public class TextAreaTest {
-
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
+@WithJenkins
+class TextAreaTest {
 
     @Inject
     public TestBuilder.DescriptorImpl d;
 
+    private JenkinsRule j;
+
+    @BeforeEach
+    void setUp(JenkinsRule rule) {
+        j = rule;
+    }
+
     @Test
     @Issue("JENKINS-19457")
-    public void validation() throws Exception {
+    void validation() throws Exception {
         j.jenkins.getInjector().injectMembers(this);
         FreeStyleProject p = j.createFreeStyleProject();
         p.getBuildersList().add(new TestBuilder());
@@ -36,19 +43,21 @@ public class TextAreaTest {
 
     public static class TestBuilder extends Builder {
 
+        @SuppressWarnings("checkstyle:redundantmodifier")
         @DataBoundConstructor
         public TestBuilder() {}
 
         public String getText1() {
             return "This is text1";
         }
+
         public String getText2() {
             return "This is text2";
         }
 
         @TestExtension
         public static class DescriptorImpl extends BuildStepDescriptor<Builder> {
-            
+
             String text1, text2;
 
             @Override
@@ -71,8 +80,8 @@ public class TextAreaTest {
 
     @Issue("JENKINS-27505")
     @Test
-    public void text() throws Exception {
-        T1: {
+    void text() throws Exception {
+        {
             String TEXT_TO_TEST = "some\nvalue\n";
             FreeStyleProject p = j.createFreeStyleProject();
             TextareaTestBuilder target = new TextareaTestBuilder(TEXT_TO_TEST);
@@ -82,7 +91,7 @@ public class TextAreaTest {
         }
 
         // test for a textarea beginning with a empty line.
-        T2: {
+        {
             String TEXT_TO_TEST = "\nbegin\n\nwith\nempty\nline\n\n";
             FreeStyleProject p = j.createFreeStyleProject();
             TextareaTestBuilder target = new TextareaTestBuilder(TEXT_TO_TEST);
@@ -92,7 +101,7 @@ public class TextAreaTest {
         }
 
         // test for a textarea beginning with two empty lines.
-        T3: {
+        {
             String TEXT_TO_TEST = "\n\nbegin\n\nwith\ntwo\nempty\nline\n\n";
             FreeStyleProject p = j.createFreeStyleProject();
             TextareaTestBuilder target = new TextareaTestBuilder(TEXT_TO_TEST);
@@ -106,6 +115,7 @@ public class TextAreaTest {
 
         private String text;
 
+        @SuppressWarnings("checkstyle:redundantmodifier")
         @DataBoundConstructor
         public TextareaTestBuilder(String text) {
             this.text = text;

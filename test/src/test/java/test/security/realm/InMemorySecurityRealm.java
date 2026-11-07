@@ -21,22 +21,36 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package test.security.realm;
 
 import hudson.security.AbstractPasswordBasedSecurityRealm;
 import hudson.security.GroupDetails;
-import org.acegisecurity.AuthenticationException;
-import org.acegisecurity.GrantedAuthority;
-import org.acegisecurity.userdetails.UserDetails;
-import org.acegisecurity.userdetails.UsernameNotFoundException;
-import org.springframework.dao.DataAccessException;
-
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 
 /**
- * Accept any password
- * Allow creation and removal of users
+ *  This class provides an in-memory implementation of Jenkins's {@link hudson.security.SecurityRealm} for
+ *  testing.
+ *  <p>
+ *  It allows the creation and removal of users, and accepts any password for authentication.
+ *  It maintains an in-memory storage of user accounts.
+ *  <p>
+ *  The user also gets authenticated with any password as the only thing validated is presence
+ *  of username entry in the hashmap.
+ *  The {@link #createAccount(String)} is used to populate the in-memory storage.
+ *  It implements the {@link #loadUserByUsername2(String)} method which simply returns the user from the
+ *  in memory storage based on username passed.
+ *  <p>
+ *  A dummy implementation of {@link UserDetails} is provided in nested class {@link InMemoryUserDetails}
+ *  which contains no roles and only username is returned.
+ *
  */
 public class InMemorySecurityRealm extends AbstractPasswordBasedSecurityRealm {
     private Map<String, UserDetails> userStorage = new HashMap<>();
@@ -57,7 +71,7 @@ public class InMemorySecurityRealm extends AbstractPasswordBasedSecurityRealm {
     }
 
     @Override
-    protected UserDetails authenticate(String username, String password) throws AuthenticationException {
+    protected UserDetails authenticate2(String username, String password) throws AuthenticationException {
         if (userStorage.containsKey(username)) {
             return userStorage.get(username);
         }
@@ -65,12 +79,12 @@ public class InMemorySecurityRealm extends AbstractPasswordBasedSecurityRealm {
     }
 
     @Override
-    public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException, DataAccessException {
+    public UserDetails loadUserByUsername2(String username) throws UsernameNotFoundException {
         return userStorage.get(username);
     }
 
     @Override
-    public GroupDetails loadGroupByGroupname(String groupname) throws UsernameNotFoundException, DataAccessException {
+    public GroupDetails loadGroupByGroupname2(String groupname, boolean fetchMembers) throws UsernameNotFoundException {
         return null;
     }
 
@@ -82,8 +96,8 @@ public class InMemorySecurityRealm extends AbstractPasswordBasedSecurityRealm {
         }
 
         @Override
-        public GrantedAuthority[] getAuthorities() {
-            return new GrantedAuthority[0];
+        public Collection<? extends GrantedAuthority> getAuthorities() {
+            return Collections.emptySet();
         }
 
         @Override

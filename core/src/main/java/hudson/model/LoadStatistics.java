@@ -21,16 +21,25 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package hudson.model;
 
+import edu.umd.cs.findbugs.annotations.CheckForNull;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import hudson.Extension;
-import jenkins.util.SystemProperties;
 import hudson.model.MultiStageTimeSeries.TimeScale;
 import hudson.model.MultiStageTimeSeries.TrendChart;
 import hudson.model.queue.SubTask;
 import hudson.util.ColorPalette;
 import hudson.util.NoOverlapCategoryAxis;
+import java.awt.BasicStroke;
+import java.awt.Color;
+import java.io.IOException;
+import java.io.Serializable;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
 import jenkins.model.Jenkins;
+import jenkins.util.SystemProperties;
 import org.jenkinsci.Symbol;
 import org.jfree.chart.ChartFactory;
 import org.jfree.chart.JFreeChart;
@@ -43,17 +52,8 @@ import org.jfree.chart.renderer.category.LineAndShapeRenderer;
 import org.jfree.data.category.CategoryDataset;
 import org.jfree.ui.RectangleInsets;
 import org.kohsuke.stapler.QueryParameter;
-import org.kohsuke.stapler.export.ExportedBean;
 import org.kohsuke.stapler.export.Exported;
-
-import java.awt.*;
-import java.io.IOException;
-import java.io.Serializable;
-import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
-import java.util.concurrent.TimeUnit;
-import java.util.List;
-import javax.annotation.CheckForNull;
+import org.kohsuke.stapler.export.ExportedBean;
 
 /**
  * Utilization statistics for a node or a set of nodes.
@@ -72,12 +72,6 @@ import javax.annotation.CheckForNull;
  */
 @ExportedBean
 public abstract class LoadStatistics {
-    /**
-     * {@code true} if and only if the new way of building statistics has been implemented by this class.
-     * @since 1.607
-     */
-    private final boolean modern;
-
     /**
      * Number of executors defined for Jenkins and how it changes over time.
      * @since 1.607
@@ -140,47 +134,18 @@ public abstract class LoadStatistics {
         this.definedExecutors = new MultiStageTimeSeries(Messages._LoadStatistics_Legends_DefinedExecutors(),
                 ColorPalette.YELLOW, initialOnlineExecutors, DECAY);
         this.onlineExecutors = new MultiStageTimeSeries(
-                Messages._LoadStatistics_Legends_OnlineExecutors(), ColorPalette.BLUE, initialOnlineExecutors,DECAY);
+                Messages._LoadStatistics_Legends_OnlineExecutors(), ColorPalette.BLUE, initialOnlineExecutors, DECAY);
         this.connectingExecutors = new MultiStageTimeSeries(Messages._LoadStatistics_Legends_ConnectingExecutors(),
                 ColorPalette.YELLOW, 0, DECAY);
         this.busyExecutors = new MultiStageTimeSeries(
-                Messages._LoadStatistics_Legends_BusyExecutors(), ColorPalette.RED, initialBusyExecutors,DECAY);
+                Messages._LoadStatistics_Legends_BusyExecutors(), ColorPalette.RED, initialBusyExecutors, DECAY);
         this.idleExecutors = new MultiStageTimeSeries(Messages._LoadStatistics_Legends_IdleExecutors(),
                 ColorPalette.YELLOW, initialOnlineExecutors - initialBusyExecutors, DECAY);
         this.availableExecutors = new MultiStageTimeSeries(Messages._LoadStatistics_Legends_AvailableExecutors(),
                 ColorPalette.YELLOW, initialOnlineExecutors - initialBusyExecutors, DECAY);
         this.queueLength = new MultiStageTimeSeries(
-                Messages._LoadStatistics_Legends_QueueLength(),ColorPalette.GREY, 0, DECAY);
+                Messages._LoadStatistics_Legends_QueueLength(), ColorPalette.GREY, 0, DECAY);
         this.totalExecutors = onlineExecutors;
-        modern = isModern(getClass());
-    }
-
-    /*package*/ static boolean isModern(Class<? extends LoadStatistics> clazz) {
-        // cannot use Util.isOverridden as these are protected methods.
-        boolean hasGetNodes = false;
-        boolean hasMatches = false;
-        while (clazz != LoadStatistics.class && clazz != null && !(hasGetNodes && hasMatches)) {
-            if (!hasGetNodes) {
-                try {
-                    final Method getNodes = clazz.getDeclaredMethod("getNodes");
-                    hasGetNodes = !Modifier.isAbstract(getNodes.getModifiers());
-                } catch (NoSuchMethodException e) {
-                    // ignore
-                }
-            }
-            if (!hasMatches) {
-                try {
-                    final Method getNodes = clazz.getDeclaredMethod("matches", Queue.Item.class, SubTask.class);
-                    hasMatches = !Modifier.isAbstract(getNodes.getModifiers());
-                } catch (NoSuchMethodException e) {
-                    // ignore
-                }
-            }
-            if (!(hasGetNodes && hasMatches) && LoadStatistics.class.isAssignableFrom(clazz.getSuperclass())) {
-                clazz = (Class<? extends LoadStatistics>) clazz.getSuperclass();
-            }
-        }
-        return hasGetNodes && hasMatches;
     }
 
     /**
@@ -196,21 +161,27 @@ public abstract class LoadStatistics {
      * @deprecated use {@link #computeSnapshot()} and then {@link LoadStatisticsSnapshot#getIdleExecutors()}
      */
     @Deprecated
-    public abstract int computeIdleExecutors();
+    public int computeIdleExecutors() {
+        return computeSnapshot().getIdleExecutors();
+    }
 
     /**
      * Computes the # of total executors right now and obtains the snapshot value.
      * @deprecated use {@link #computeSnapshot()} and then {@link LoadStatisticsSnapshot#getOnlineExecutors()}
      */
     @Deprecated
-    public abstract int computeTotalExecutors();
+    public int computeTotalExecutors() {
+        return computeSnapshot().getOnlineExecutors();
+    }
 
     /**
      * Computes the # of queue length right now and obtains the snapshot value.
      * @deprecated use {@link #computeSnapshot()} and then {@link LoadStatisticsSnapshot#getQueueLength()}
      */
     @Deprecated
-    public abstract int computeQueueLength();
+    public int computeQueueLength() {
+        return computeSnapshot().getQueueLength();
+    }
 
     /**
      * Creates a trend chart.
@@ -258,7 +229,7 @@ public abstract class LoadStatistics {
         renderer.setSeriesPaint(0, ColorPalette.BLUE);  // online
         renderer.setSeriesPaint(1, ColorPalette.RED);   // busy
         renderer.setSeriesPaint(2, ColorPalette.GREY);  // queue
-        renderer.setSeriesPaint(3, ColorPalette.YELLOW);// available
+        renderer.setSeriesPaint(3, ColorPalette.YELLOW); // available
     }
 
     /**
@@ -266,7 +237,7 @@ public abstract class LoadStatistics {
      * of the load statistics graph.
      */
     public TrendChart createTrendChart(TimeScale timeScale) {
-        return MultiStageTimeSeries.createTrendChart(timeScale,onlineExecutors,busyExecutors,queueLength,availableExecutors);
+        return MultiStageTimeSeries.createTrendChart(timeScale, onlineExecutors, busyExecutors, queueLength, availableExecutors);
     }
 
     /**
@@ -331,13 +302,7 @@ public abstract class LoadStatistics {
      * @since 1.607
      */
     public LoadStatisticsSnapshot computeSnapshot() {
-        if (modern) {
-            return computeSnapshot(Jenkins.getInstance().getQueue().getBuildableItems());
-        } else {
-            int t = computeTotalExecutors();
-            int i = computeIdleExecutors();
-            return new LoadStatisticsSnapshot(t, t, Math.max(i-t,0), Math.max(t-i,0), i, i, computeQueueLength());
-        }
+        return computeSnapshot(Jenkins.get().getQueue().getBuildableItems());
     }
 
     /**
@@ -358,7 +323,7 @@ public abstract class LoadStatistics {
         int q = 0;
         if (queue != null) {
             for (Queue.BuildableItem item : queue) {
-                
+
                 for (SubTask st : item.task.getSubTasks()) {
                     if (matches(item, st))
                         q++;
@@ -370,30 +335,33 @@ public abstract class LoadStatistics {
 
     /**
      * With 0.90 decay ratio for every 10sec, half reduction is about 1 min.
-     * 
+     *
      * Put differently, the half reduction time is {@code CLOCK*log(0.5)/log(DECAY)}
      */
-    public static final float DECAY = Float.parseFloat(SystemProperties.getString(LoadStatistics.class.getName()+".decay","0.9"));
+    public static final float DECAY = Float.parseFloat(SystemProperties.getString(LoadStatistics.class.getName() + ".decay", "0.9"));
     /**
      * Load statistics clock cycle in milliseconds. Specify a small value for quickly debugging this feature and node provisioning through cloud.
      */
-    public static int CLOCK = SystemProperties.getInteger(LoadStatistics.class.getName() + ".clock", (int)TimeUnit.SECONDS.toMillis(10));
+    @SuppressFBWarnings(value = "MS_SHOULD_BE_FINAL", justification = "for script console")
+    public static int CLOCK = SystemProperties.getInteger(LoadStatistics.class.getName() + ".clock", (int) TimeUnit.SECONDS.toMillis(10));
 
     /**
      * Periodically update the load statistics average.
      */
     @Extension @Symbol("loadStatistics")
     public static class LoadStatisticsUpdater extends PeriodicWork {
+        @Override
         public long getRecurrencePeriod() {
             return CLOCK;
         }
 
+        @Override
         protected void doRun() {
-            Jenkins j = Jenkins.getInstance();
+            Jenkins j = Jenkins.get();
             List<Queue.BuildableItem> bis = j.getQueue().getBuildableItems();
 
             // update statistics on agents
-            for( Label l : j.getLabels() ) {
+            for (Label l : j.getLabels()) {
                 l.loadStatistics.updateCounts(l.loadStatistics.computeSnapshot(bis));
             }
 
@@ -404,7 +372,7 @@ public abstract class LoadStatistics {
         }
 
         private int count(List<Queue.BuildableItem> bis, Label l) {
-            int q=0;
+            int q = 0;
             for (Queue.BuildableItem bi : bis) {
                 for (SubTask st : bi.task.getSubTasks()) {
                     if (bi.getAssignedLabelFor(st) == l) {
@@ -527,7 +495,6 @@ public abstract class LoadStatistics {
             return queueLength;
         }
 
-        /** {@inheritDoc} */
         @Override
         public boolean equals(Object o) {
             if (this == o) {
@@ -564,7 +531,6 @@ public abstract class LoadStatistics {
             return true;
         }
 
-        /** {@inheritDoc} */
         @Override
         public int hashCode() {
             int result = definedExecutors;
@@ -577,19 +543,17 @@ public abstract class LoadStatistics {
             return result;
         }
 
-        /** {@inheritDoc} */
         @Override
         public String toString() {
-            final StringBuilder sb = new StringBuilder("LoadStatisticsSnapshot{");
-            sb.append("definedExecutors=").append(definedExecutors);
-            sb.append(", onlineExecutors=").append(onlineExecutors);
-            sb.append(", connectingExecutors=").append(connectingExecutors);
-            sb.append(", busyExecutors=").append(busyExecutors);
-            sb.append(", idleExecutors=").append(idleExecutors);
-            sb.append(", availableExecutors=").append(availableExecutors);
-            sb.append(", queueLength=").append(queueLength);
-            sb.append('}');
-            return sb.toString();
+            String sb = "LoadStatisticsSnapshot{" + "definedExecutors=" + definedExecutors +
+                    ", onlineExecutors=" + onlineExecutors +
+                    ", connectingExecutors=" + connectingExecutors +
+                    ", busyExecutors=" + busyExecutors +
+                    ", idleExecutors=" + idleExecutors +
+                    ", availableExecutors=" + availableExecutors +
+                    ", queueLength=" + queueLength +
+                    '}';
+            return sb;
         }
 
         /**

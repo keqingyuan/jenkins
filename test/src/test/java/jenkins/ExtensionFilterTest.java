@@ -1,26 +1,35 @@
 package jenkins;
 
-import static org.junit.Assert.assertTrue;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.hasSize;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import hudson.ExtensionComponent;
 import hudson.console.ConsoleAnnotatorFactory;
 import hudson.model.PageDecorator;
-import org.junit.Rule;
-import org.junit.Test;
+import jenkins.install.SetupWizard;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.jvnet.hudson.test.JenkinsRule;
 import org.jvnet.hudson.test.TestExtension;
+import org.jvnet.hudson.test.junit.jupiter.WithJenkins;
 
 /**
  * @author Kohsuke Kawaguchi
  */
-public class ExtensionFilterTest {
+@WithJenkins
+class ExtensionFilterTest {
 
-    @Rule
-    public JenkinsRule j = new JenkinsRule();
+    private JenkinsRule j;
+
+    @BeforeEach
+    void setUp(JenkinsRule rule) {
+        j = rule;
+    }
 
     @Test
-    public void filter() {
-        assertTrue(PageDecorator.all().isEmpty());
+    void filter() {
+        assertThat(PageDecorator.all(), hasSize(1));
         assertTrue(ConsoleAnnotatorFactory.all().isEmpty());
     }
 
@@ -28,10 +37,13 @@ public class ExtensionFilterTest {
     public static class Impl extends ExtensionFilter {
         @Override
         public <T> boolean allows(Class<T> type, ExtensionComponent<T> component) {
-            if (type==ConsoleAnnotatorFactory.class)
+            if (type == ConsoleAnnotatorFactory.class) {
                 return false;
-            if (component.isDescriptorOf(PageDecorator.class))
+            }
+            // SetupWizard is required during startup
+            if (component.isDescriptorOf(PageDecorator.class) && !component.isDescriptorOf(SetupWizard.class)) {
                 return false;
+            }
             return true;
         }
     }

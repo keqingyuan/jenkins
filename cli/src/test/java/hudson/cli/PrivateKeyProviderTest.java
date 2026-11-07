@@ -1,104 +1,163 @@
 package hudson.cli;
 
-import org.junit.Test;
+
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.io.File;
 import java.io.IOException;
-import java.lang.IllegalArgumentException;
+import java.net.URISyntaxException;
+import java.net.URL;
 import java.security.GeneralSecurityException;
+import java.security.InvalidKeyException;
 import java.security.KeyPair;
-import java.security.NoSuchAlgorithmException;
-
-import static org.junit.Assert.assertNotNull;
+import java.security.spec.InvalidKeySpecException;
+import java.util.Objects;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 
 /**
 keys were generated with ssh-keygen from OpenSSH_7.9p1, LibreSSL 2.7.3
 */
-public class PrivateKeyProviderTest {
+@Execution(ExecutionMode.CONCURRENT)
+class PrivateKeyProviderTest {
 
     /**
     key command: ssh-keygen -f dsa -t dsa -b 1024 -m PEM
     */
     @Test
-    public void loadKeyDSA() throws IOException, GeneralSecurityException {
-        File file = new File(this.getClass().getResource("dsa").getFile());
-        String password = null;
+    void loadKeyDSA() throws IOException, GeneralSecurityException {
+        File file = resourceAsFile("dsa");
+        assertKeyPairNotNull(file, null);
+    }
+
+    /**
+     * Asserts the keyPair private and public are not null.
+     * @param file the file to load the key from
+     * @param password the password
+     */
+    private void assertKeyPairNotNull(File file, String password) throws IOException, GeneralSecurityException {
         KeyPair keyPair = PrivateKeyProvider.loadKey(file, password);
         assertNotNull(keyPair);
         assertNotNull(keyPair.getPrivate());
         assertNotNull(keyPair.getPublic());
     }
 
+    private File resourceAsFile(String name) {
+        URL url = Objects.requireNonNull(getClass().getResource(name), "Missing test resource " + name);
+        try {
+            return new File(url.toURI());
+        } catch (URISyntaxException e) {
+            throw new AssertionError("Invalid URI for test resource " + name + ": " + url, e);
+        }
+    }
+
     /**
-    key command: ssh-keygen -f dsa-password -t dsa -b 1024 -m PEM -p password
+    key command: ssh-keygen -f dsa-password -t dsa -b 1024 -m PEM -P password
     */
     @Test
-    public void loadKeyDSAPassword() throws IOException, GeneralSecurityException {
-        File file = new File(this.getClass().getResource("dsa-password").getFile());
+    void loadKeyDSAPassword() throws IOException, GeneralSecurityException {
+        File file = resourceAsFile("dsa-password");
         String password = "password";
-        KeyPair keyPair = PrivateKeyProvider.loadKey(file, password);
-        assertNotNull(keyPair);
-        assertNotNull(keyPair.getPrivate());
-        assertNotNull(keyPair.getPublic());
+        assertKeyPairNotNull(file, password);
     }
-    
+
     /**
     key command: ssh-keygen -f rsa -t rsa -b 1024 -m PEM
     */
     @Test
-    public void loadKeyRSA() throws IOException, GeneralSecurityException {
-        File file = new File(this.getClass().getResource("rsa").getFile());
-        String password = null;
-        KeyPair keyPair = PrivateKeyProvider.loadKey(file, password);
-        assertNotNull(keyPair);
-        assertNotNull(keyPair.getPrivate());
-        assertNotNull(keyPair.getPublic());
+    void loadKeyRSA() throws IOException, GeneralSecurityException {
+        File file = resourceAsFile("rsa");
+        assertKeyPairNotNull(file, null);
     }
 
     /**
-    key command: ssh-keygen -f rsa-password -t rsa -b 1024 -m PEM -p password
+    key command: ssh-keygen -f rsa-password -t rsa -b 1024 -m PEM -P password
     */
     @Test
-    public void loadKeyRSAPassword() throws IOException, GeneralSecurityException {
-        File file = new File(this.getClass().getResource("rsa-password").getFile());
+    void loadKeyRSAPassword() throws IOException, GeneralSecurityException {
+        File file = resourceAsFile("rsa-password");
         String password = "password";
-        KeyPair keyPair = PrivateKeyProvider.loadKey(file, password);
-        assertNotNull(keyPair);
-        assertNotNull(keyPair.getPrivate());
-        assertNotNull(keyPair.getPublic());
+        assertKeyPairNotNull(file, password);
     }
-    
+
     /**
     key command: ssh-keygen -f openssh -t rsa -b 1024
     */
     @Test
-    public void loadKeyOpenSSH() throws IOException, GeneralSecurityException {
-        File file = new File(this.getClass().getResource("openssh").getFile());
-        String password = null;
-        KeyPair keyPair = PrivateKeyProvider.loadKey(file, password);
-        assertNotNull(keyPair);
-        assertNotNull(keyPair.getPrivate());
-        assertNotNull(keyPair.getPublic());
+    void loadKeyOpenSSH() throws IOException, GeneralSecurityException {
+        File file = resourceAsFile("openssh");
+        assertKeyPairNotNull(file, null);
     }
-    
+
     /**
-    key command: ssh-keygen -f openssh-unsupported -t rsa -b 1024 -p password
-    */
-    @Test(expected = NoSuchAlgorithmException.class)
-    public void loadKeyUnsupportedCipher() throws IOException, GeneralSecurityException {
-        File file = new File(this.getClass().getResource("openssh-unsuported").getFile());
+     key command: ssh-keygen -f openssh-unsupported -t rsa -b 1024 -m PKCS8 -P password
+     */
+    @Test
+    void loadKeyOpenSSHPKCS8() throws IOException, GeneralSecurityException {
+        File file = resourceAsFile("openssh-pkcs8");
         String password = "password";
-        PrivateKeyProvider.loadKey(file, password);
+        assertKeyPairNotNull(file, password);
+    }
+
+    /**
+     key command: ssh-keygen -f openssh-unsupported -t rsa -b 1024 -m RFC4716 -p password
+     */
+    @Test
+    void loadKeyOpenSSHRFC4716() throws IOException, GeneralSecurityException {
+        File file = resourceAsFile("openssh-rfc4716");
+        String password = "password";
+        assertKeyPairNotNull(file, password);
+    }
+
+    /**
+     key command: ssh-keygen -f openssh-unsupported -t rsa -b 1024 -m RFC4716 -p password
+     Copy pasted the same key twice
+     */
+    @Test
+    void loadKeyOpenSSHMultipleKeys() {
+        File file = resourceAsFile("openssh-multiple-keys");
+        String password = "password";
+        assertThrows(InvalidKeySpecException.class, () -> PrivateKeyProvider.loadKey(file, password));
+    }
+
+    /**
+     * Uses a blank file
+     */
+    @Test
+    void loadBlankKey() {
+        File file = resourceAsFile("blank");
+        String password = "password";
+        assertThrows(InvalidKeyException.class, () -> PrivateKeyProvider.loadKey(file, password));
     }
 
     /**
     key command: ssh-keygen -f openssh -t rsa -b 1024
     in this key we remove some lines to break the key.
-    */    
-    @Test(expected = IllegalArgumentException.class)
-    public void loadKeyBroken() throws IOException, GeneralSecurityException {
-        File file = new File(this.getClass().getResource("openssh-broken").getFile());
+    */
+    @Test
+    void loadKeyBroken() {
+        File file = resourceAsFile("openssh-broken");
         String password = "password";
-        PrivateKeyProvider.loadKey(file, password);
+        assertThrows(IllegalArgumentException.class, () -> PrivateKeyProvider.loadKey(file, password));
+    }
+
+    /**
+    key command: ssh-keygen -t ecdsa -b 256 -N "" -C "" -f ecdsa
+    */
+    @Test
+    void loadKeyECDSA() throws IOException, GeneralSecurityException {
+        File file = resourceAsFile("ecdsa");
+        assertKeyPairNotNull(file, null);
+    }
+
+    /**
+    key command: ssh-keygen -t ed25519 -N "" -C "" -f ed25519
+    */
+    @Test
+    void loadKeyED25519() throws IOException, GeneralSecurityException {
+        File file = resourceAsFile("ed25519");
+        assertKeyPairNotNull(file, null);
     }
 }

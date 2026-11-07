@@ -1,17 +1,15 @@
 package jenkins.security;
 
 import hudson.Util;
-
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import javax.crypto.KeyGenerator;
 import javax.crypto.Mac;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
-import java.io.IOException;
-import java.io.UnsupportedEncodingException;
-import java.nio.charset.StandardCharsets;
-import java.security.GeneralSecurityException;
-import java.security.NoSuchAlgorithmException;
-import java.util.Arrays;
 
 /**
  * {@link ConfidentialKey} that's used for creating a token by hashing some information with secret
@@ -19,7 +17,7 @@ import java.util.Arrays;
  *
  * <p>
  * This provides more secure version of it by using HMAC.
- * See http://rdist.root.org/2009/10/29/stop-using-unsafe-keyed-hashes-use-hmac/ for background.
+ * See <a href="https://rdist.root.org/2009/10/29/stop-using-unsafe-keyed-hashes-use-hmac/">this blog post</a> for background.
  * This implementation also never leaks the secret value to outside, so it makes it impossible
  * for the careless caller to misuse the key (thus protecting ourselves from our own stupidity!)
  *
@@ -27,7 +25,9 @@ import java.util.Arrays;
  * @since 1.498
  */
 public class HMACConfidentialKey extends ConfidentialKey {
-    private volatile SecretKey key;
+
+    private ConfidentialStore lastCS;
+    private SecretKey key;
     private Mac mac;
     private final int length;
 
@@ -48,7 +48,7 @@ public class HMACConfidentialKey extends ConfidentialKey {
      * Calls into {@link #HMACConfidentialKey(String, int)} with the longest possible HMAC length.
      */
     public HMACConfidentialKey(String id) {
-        this(id,Integer.MAX_VALUE);
+        this(id, Integer.MAX_VALUE);
     }
 
     /**
@@ -56,18 +56,20 @@ public class HMACConfidentialKey extends ConfidentialKey {
      * as the ID.
      */
     public HMACConfidentialKey(Class owner, String shortName, int length) {
-        this(owner.getName()+'.'+shortName,length);
+        this(owner.getName() + '.' + shortName, length);
     }
 
     public HMACConfidentialKey(Class owner, String shortName) {
-        this(owner,shortName,Integer.MAX_VALUE);
+        this(owner, shortName, Integer.MAX_VALUE);
     }
 
     /**
      * Computes the message authentication code for the specified byte sequence.
      */
     public synchronized byte[] mac(byte[] message) {
-        if (mac == null) {
+        ConfidentialStore cs = ConfidentialStore.get();
+        if (mac == null || cs != lastCS) {
+            lastCS = cs;
             mac = createMac();
         }
         return chop(mac.doFinal(message));
@@ -77,7 +79,7 @@ public class HMACConfidentialKey extends ConfidentialKey {
      * Convenience method for verifying the MAC code.
      */
     public boolean checkMac(byte[] message, byte[] mac) {
-        return Arrays.equals(mac(message),mac);
+        return MessageDigest.isEqual(mac(message), mac);
     }
 
     /**
@@ -92,14 +94,19 @@ public class HMACConfidentialKey extends ConfidentialKey {
      * Verifies MAC constructed from {@link #mac(String)}
      */
     public boolean checkMac(String message, String mac) {
-        return mac(message).equals(mac);
+        return MessageDigest.isEqual(mac(message).getBytes(StandardCharsets.UTF_8), mac.getBytes(StandardCharsets.UTF_8));
     }
 
     private byte[] chop(byte[] mac) {
-        if (mac.length<=length)  return mac; // already too short
+        //don't shorten the mac code on FIPS mode
+        //if length supplied is less than original mac code length on FIPS, throw exception
+        if (FIPS140.useCompliantAlgorithms() && length < mac.length) {
+            throw new IllegalArgumentException("Supplied length can't be less than " + mac.length + " on FIPS mode");
+        }
+        if (mac.length <= length)  return mac; // already too short
 
         byte[] b = new byte[length];
-        System.arraycopy(mac,0,b,0,b.length);
+        System.arraycopy(mac, 0, b, 0, b.length);
         return b;
     }
 
@@ -113,28 +120,24 @@ public class HMACConfidentialKey extends ConfidentialKey {
             return mac;
         } catch (GeneralSecurityException e) {
             // Javadoc says HmacSHA256 must be supported by every Java implementation.
-            throw new Error(ALGORITHM+" not supported?",e);
+            throw new Error(ALGORITHM + " not supported?", e);
         }
     }
 
-    private SecretKey getKey() {
-        if (key==null) {
-            synchronized (this) {
-                if (key==null) {
-                    try {
-                        byte[] encoded = load();
-                        if (encoded==null) {
-                            KeyGenerator kg = KeyGenerator.getInstance(ALGORITHM);
-                            SecretKey key = kg.generateKey();
-                            store(encoded=key.getEncoded());
-                        }
-                        key = new SecretKeySpec(encoded,ALGORITHM);
-                    } catch (IOException e) {
-                        throw new Error("Failed to load the key: "+getId(),e);
-                    } catch (NoSuchAlgorithmException e) {
-                        throw new Error("Failed to load the key: "+getId(),e);
-                    }
+    private synchronized SecretKey getKey() {
+        ConfidentialStore cs = ConfidentialStore.get();
+        if (key == null || cs != lastCS) {
+            lastCS = cs;
+            try {
+                byte[] encoded = load();
+                if (encoded == null) {
+                    KeyGenerator kg = KeyGenerator.getInstance(ALGORITHM);
+                    SecretKey key = kg.generateKey();
+                    store(encoded = key.getEncoded());
                 }
+                key = new SecretKeySpec(encoded, ALGORITHM);
+            } catch (IOException | NoSuchAlgorithmException e) {
+                throw new Error("Failed to load the key: " + getId(), e);
             }
         }
         return key;

@@ -21,6 +21,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+
 package hudson.model;
 
 import jenkins.model.Jenkins;
@@ -49,6 +50,6 @@ public interface DescriptorByNameOwner extends ModelObject {
      *      Either {@link Descriptor#getId()} (recommended) or the short name.
      */
     default Descriptor getDescriptorByName(String id) {
-        return Jenkins.getInstance().getDescriptorByName(id);
+        return Jenkins.get().getDescriptorByName(id);
     }
 }
